@@ -182,15 +182,124 @@ export default function RunDetailPage({
         </div>
       </div>
 
-      {/* Body */}
-      <div className="flex flex-1 flex-col overflow-hidden md:flex-row">
+      {/* Body — Mobile: single tabbed view. Desktop: split pane */}
+
+      {/* Mobile: fully tabbed layout */}
+      <div className="flex flex-1 flex-col overflow-hidden md:hidden">
+        <Tabs defaultValue="transcript" className="flex flex-1 flex-col overflow-hidden">
+          <TabsList className="mx-2 mt-2 w-auto shrink-0 grid grid-cols-4">
+            <TabsTrigger value="transcript" className="text-xs">Transcript</TabsTrigger>
+            <TabsTrigger value="diffs" className="text-xs">Diffs</TabsTrigger>
+            <TabsTrigger value="dag" className="text-xs">DAG</TabsTrigger>
+            <TabsTrigger value="meta" className="text-xs">Meta</TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="transcript" className="flex-1 overflow-hidden m-0 mt-2">
+            <TranscriptFeed events={allEvents} isConnected={isConnected} />
+          </TabsContent>
+
+          <TabsContent value="diffs" className="flex-1 overflow-hidden m-0 mt-2">
+            <div className="flex h-full flex-col">
+              <div className="w-full border-b shrink-0 overflow-auto max-h-32">
+                <FileList
+                  files={diffFiles}
+                  selectedFile={selectedFile}
+                  onSelect={setSelectedFile}
+                />
+              </div>
+              <div className="flex-1 min-h-[250px]">
+                <DiffViewer diff={diff ?? ""} filePath={selectedFile} />
+              </div>
+            </div>
+          </TabsContent>
+
+          <TabsContent value="dag" className="flex-1 overflow-auto m-0 mt-2 p-4">
+            {blueprint ? (
+              <BlueprintDag blueprint={blueprint} nodeStates={nodeStates} />
+            ) : (
+              <div className="py-8 text-center text-sm text-muted-foreground">
+                No blueprint data available
+              </div>
+            )}
+          </TabsContent>
+
+          <TabsContent value="meta" className="flex-1 overflow-auto m-0 mt-2 p-4">
+            <div className="space-y-3 text-sm">
+              <div>
+                <span className="text-muted-foreground">Run ID:</span>{" "}
+                <span className="font-mono text-xs break-all">{run.id}</span>
+              </div>
+              <Separator />
+              <div>
+                <span className="text-muted-foreground">Blueprint:</span>{" "}
+                {run.blueprintId}
+              </div>
+              <Separator />
+              <div>
+                <span className="text-muted-foreground">Description:</span>
+                <p className="mt-1">{run.description}</p>
+              </div>
+              <Separator />
+              <div>
+                <span className="text-muted-foreground">Created:</span>{" "}
+                {new Date(run.createdAt).toLocaleString()}
+              </div>
+              {run.patches && run.patches.length > 0 && (
+                <>
+                  <Separator />
+                  <div>
+                    <span className="text-muted-foreground">Patches:</span>
+                    <div className="mt-1 space-y-2">
+                      {run.patches.map((patch) => (
+                        <div
+                          key={patch.id}
+                          className="rounded-md border border-border p-2 text-xs"
+                        >
+                          <span className="font-medium">{patch.agentRole}</span>
+                          <span className="text-muted-foreground ml-2">
+                            {patch.files.length} file(s)
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </>
+              )}
+              {run.steps && run.steps.length > 0 && (
+                <>
+                  <Separator />
+                  <div>
+                    <span className="text-muted-foreground">Steps:</span>
+                    <div className="mt-1 space-y-1">
+                      {run.steps.map((step) => (
+                        <div
+                          key={step.id}
+                          className="flex items-center gap-2 text-xs"
+                        >
+                          <span className="font-medium">{step.nodeId}</span>
+                          <span className="text-muted-foreground">
+                            {step.status}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+          </TabsContent>
+        </Tabs>
+      </div>
+
+      {/* Desktop: split pane */}
+      <div className="hidden md:flex flex-1 flex-row overflow-hidden">
         {/* Left: Transcript */}
-        <div className="flex-1 overflow-hidden border-b border-border md:border-b-0 md:border-r min-h-0">
+        <div className="flex-1 overflow-hidden border-r border-border min-h-0">
           <TranscriptFeed events={allEvents} isConnected={isConnected} />
         </div>
 
         {/* Right: Tabs */}
-        <div className="flex flex-1 flex-col overflow-hidden md:max-w-[50%]">
+        <div className="flex flex-1 flex-col overflow-hidden max-w-[50%]">
           <Tabs defaultValue="diffs" className="flex flex-1 flex-col overflow-hidden">
             <TabsList className="mx-2 mt-2 w-auto shrink-0">
               <TabsTrigger value="diffs">Diffs</TabsTrigger>
@@ -200,8 +309,8 @@ export default function RunDetailPage({
             </TabsList>
 
             <TabsContent value="diffs" className="flex-1 overflow-hidden m-0 mt-2">
-              <div className="flex h-full flex-col md:flex-row">
-                <div className="w-full border-b md:w-48 md:border-b-0 md:border-r shrink-0 overflow-auto max-h-40 md:max-h-none">
+              <div className="flex h-full flex-row">
+                <div className="w-48 border-r shrink-0 overflow-auto">
                   <FileList
                     files={diffFiles}
                     selectedFile={selectedFile}
@@ -209,20 +318,14 @@ export default function RunDetailPage({
                   />
                 </div>
                 <div className="flex-1 min-h-[300px]">
-                  <DiffViewer
-                    diff={diff ?? ""}
-                    filePath={selectedFile}
-                  />
+                  <DiffViewer diff={diff ?? ""} filePath={selectedFile} />
                 </div>
               </div>
             </TabsContent>
 
             <TabsContent value="dag" className="flex-1 overflow-auto m-0 mt-2 p-4">
               {blueprint ? (
-                <BlueprintDag
-                  blueprint={blueprint}
-                  nodeStates={nodeStates}
-                />
+                <BlueprintDag blueprint={blueprint} nodeStates={nodeStates} />
               ) : (
                 <div className="py-8 text-center text-sm text-muted-foreground">
                   No blueprint data available

@@ -35,7 +35,7 @@ export function FileList({
             key={file.path}
             onClick={() => onSelect(file.path)}
             className={cn(
-              "flex items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors w-full",
+              "flex items-center gap-2 rounded-md px-2 py-2 text-left text-sm transition-colors w-full min-h-[44px]",
               selectedFile === file.path
                 ? "bg-accent text-accent-foreground"
                 : "hover:bg-accent/50 text-foreground/80"

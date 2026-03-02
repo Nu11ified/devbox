@@ -63,7 +63,7 @@ export default function BlueprintDetailPage({
 
       <div>
         <h2 className="text-lg font-semibold mb-3">DAG Visualization</h2>
-        <div className="rounded-md border border-border p-4 bg-card">
+        <div className="rounded-md border border-border p-4 bg-card overflow-x-auto -mx-4 sm:mx-0 px-4">
           <BlueprintDag blueprint={blueprint} />
         </div>
       </div>
@@ -76,9 +76,9 @@ export default function BlueprintDetailPage({
           {blueprint.nodes.map((node) => (
             <div
               key={node.id}
-              className="flex items-center gap-3 rounded-md border border-border p-3"
+              className="flex flex-col gap-1 rounded-md border border-border p-3 sm:flex-row sm:items-center sm:gap-3"
             >
-              <Badge variant={node.type === "agent" ? "default" : "secondary"}>
+              <Badge variant={node.type === "agent" ? "default" : "secondary"} className="w-fit">
                 {node.type}
               </Badge>
               <div className="flex-1 min-w-0">
@@ -90,7 +90,7 @@ export default function BlueprintDetailPage({
                   </span>
                 )}
                 {node.command && (
-                  <span className="ml-2 text-xs text-muted-foreground font-mono">
+                  <span className="block sm:inline sm:ml-2 text-xs text-muted-foreground font-mono truncate">
                     {node.command}
                   </span>
                 )}

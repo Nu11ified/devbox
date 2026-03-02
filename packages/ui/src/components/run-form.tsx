@@ -57,7 +57,7 @@ export function RunForm() {
   }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-6 max-w-lg">
+    <form onSubmit={handleSubmit} className="space-y-6 max-w-full sm:max-w-lg">
       <div className="space-y-2">
         <Label htmlFor="repo">Repository URL *</Label>
         <Input
@@ -165,7 +165,11 @@ export function RunForm() {
         <p className="text-sm text-destructive">{error}</p>
       )}
 
-      <Button type="submit" disabled={submitting || !repo.trim() || !description.trim()}>
+      <Button
+        type="submit"
+        disabled={submitting || !repo.trim() || !description.trim()}
+        className="w-full sm:w-auto"
+      >
         {submitting ? "Creating..." : "Create Run"}
       </Button>
     </form>

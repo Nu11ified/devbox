@@ -28,9 +28,9 @@ export default function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
-        <div className="flex h-screen">
+        <div className="flex flex-col md:flex-row h-screen overflow-hidden">
           <Nav />
-          <div className="flex flex-1 flex-col overflow-hidden">
+          <div className="flex flex-1 flex-col overflow-hidden min-h-0">
             <main className="flex-1 overflow-auto">{children}</main>
           </div>
         </div>
