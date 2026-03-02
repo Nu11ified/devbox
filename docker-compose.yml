@@ -1,12 +1,11 @@
 services:
   postgres:
     image: postgres:17
+    restart: unless-stopped
     environment:
-      POSTGRES_USER: patchwork
-      POSTGRES_PASSWORD: patchwork
-      POSTGRES_DB: patchwork
-    ports:
-      - "5433:5432"
+      POSTGRES_USER: ${POSTGRES_USER:-patchwork}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-patchwork}
+      POSTGRES_DB: ${POSTGRES_DB:-patchwork}
     volumes:
       - pgdata:/var/lib/postgresql/data
 
@@ -14,17 +13,47 @@ services:
     build:
       context: .
       dockerfile: packages/server/Dockerfile
+    restart: unless-stopped
     depends_on:
       - postgres
-    ports:
-      - "3001:3001"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - patchwork-data:/data/patchwork
     environment:
-      DBOS_SYSTEM_DATABASE_URL: postgresql://patchwork:patchwork@postgres:5432/patchwork
+      DBOS_SYSTEM_DATABASE_URL: postgresql://${POSTGRES_USER:-patchwork}:${POSTGRES_PASSWORD:-patchwork}@postgres:5432/${POSTGRES_DB:-patchwork}
       FILE_STORE_PATH: /data/patchwork
+      PATCHWORK_ENCRYPTION_KEY: ${PATCHWORK_ENCRYPTION_KEY:-}
+      PATCHWORK_USERNAME: ${PATCHWORK_USERNAME:-}
+      PATCHWORK_PASSWORD: ${PATCHWORK_PASSWORD:-}
+
+  ui:
+    build:
+      context: .
+      dockerfile: packages/ui/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      - server
+    environment:
+      NEXT_PUBLIC_API_URL: http://server:3001
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    environment:
+      SITE_ADDRESS: ${PATCHWORK_URL:-http://localhost}
+    depends_on:
+      - ui
+      - server
 
 volumes:
   pgdata:
   patchwork-data:
+  caddy-data:
+  caddy-config:

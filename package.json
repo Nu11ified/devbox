@@ -5,10 +5,10 @@
     "packages/*"
   ],
   "scripts": {
-    "build": "npm run build --workspaces",
-    "test": "npm run test --workspaces --if-present",
-    "dev:server": "npm run dev -w packages/server",
-    "dev:sidecar": "npm run dev -w packages/sidecar",
-    "dev:ui": "npm run dev -w packages/ui"
+    "build": "bun --filter '*' build",
+    "test": "bun --filter '*' test",
+    "dev:server": "bun --filter @patchwork/server dev",
+    "dev:sidecar": "bun --filter @patchwork/sidecar dev",
+    "dev:ui": "bun --filter @patchwork/ui dev"
   }
 }

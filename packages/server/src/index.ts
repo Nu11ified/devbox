@@ -7,10 +7,12 @@ import { runsRouter } from "./api/runs.js";
 import { authRouter } from "./api/auth.js";
 import { setupWebSocket } from "./api/ws.js";
 import { AuthProxy } from "./auth/proxy.js";
+import { basicAuth } from "./auth/basic.js";
 
 export function createApp(): express.Express {
   const app = express();
 
+  app.use(basicAuth());
   app.use(express.json());
 
   // Auth proxy with encryption key from env or random (dev)

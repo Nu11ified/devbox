@@ -73,7 +73,7 @@ export default function BlueprintDetailPage({
       <div>
         <h2 className="text-lg font-semibold mb-3">Nodes</h2>
         <div className="space-y-2">
-          {blueprint.nodes.map((node) => (
+          {blueprint.nodes.map((node: { id: string; type: string; label: string; command?: string; agentConfig?: { role: string; preferredBackends: string[] } }) => (
             <div
               key={node.id}
               className="flex flex-col gap-1 rounded-md border border-border p-3 sm:flex-row sm:items-center sm:gap-3"
@@ -103,7 +103,7 @@ export default function BlueprintDetailPage({
       <div>
         <h2 className="text-lg font-semibold mb-3">Edges</h2>
         <div className="space-y-1">
-          {blueprint.edges.map((edge, i) => (
+          {blueprint.edges.map((edge: { from: string; to: string; condition: string }, i: number) => (
             <div key={i} className="text-sm text-muted-foreground">
               {edge.from} → {edge.to}{" "}
               <Badge variant="outline" className="text-xs">

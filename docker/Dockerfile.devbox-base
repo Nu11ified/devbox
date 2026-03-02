@@ -5,18 +5,18 @@
 # rely on stage 1 to build it from source.
 
 # --- Stage 1: Build the sidecar ---
-FROM node:20-slim AS builder
+FROM oven/bun:1 AS builder
 
 WORKDIR /build
 
 # Copy root workspace files
-COPY package.json package-lock.json tsconfig.base.json ./
+COPY package.json bun.lock tsconfig.base.json ./
 COPY packages/sidecar/package.json packages/sidecar/tsconfig.json packages/sidecar/
 COPY packages/sidecar/src packages/sidecar/src
 
 # Install dependencies and build sidecar
-RUN npm ci --workspace=packages/sidecar --include-workspace-root && \
-    npm run build -w packages/sidecar
+RUN bun install --frozen-lockfile && \
+    bun run --filter @patchwork/sidecar build
 
 # --- Stage 2: Runtime image ---
 FROM node:20-slim
