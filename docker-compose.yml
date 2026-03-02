@@ -16,6 +16,8 @@ services:
     restart: unless-stopped
     depends_on:
       - postgres
+    ports:
+      - "${SERVER_PORT:-3001}:3001"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - patchwork-data:/data/patchwork
@@ -33,27 +35,11 @@ services:
     restart: unless-stopped
     depends_on:
       - server
+    ports:
+      - "${UI_PORT:-3000}:3000"
     environment:
       NEXT_PUBLIC_API_URL: http://server:3001
-
-  caddy:
-    image: caddy:2-alpine
-    restart: unless-stopped
-    ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
-      - caddy-data:/data
-      - caddy-config:/config
-    environment:
-      SITE_ADDRESS: ${PATCHWORK_URL:-http://localhost}
-    depends_on:
-      - ui
-      - server
 
 volumes:
   pgdata:
   patchwork-data:
-  caddy-data:
-  caddy-config:

@@ -1,8 +1,0 @@
-{$SITE_ADDRESS} {
-	# API and WebSocket routes → server
-	reverse_proxy /api/* server:3001
-	reverse_proxy /ws/* server:3001
-
-	# Everything else → Next.js UI
-	reverse_proxy ui:3000
-}
