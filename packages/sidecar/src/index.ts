@@ -1,8 +1,10 @@
 import express from "express";
+import http from "node:http";
 import healthRouter from "./routes/health.js";
 import execRouter from "./routes/exec.js";
 import gitRouter from "./routes/git.js";
 import fsRouter from "./routes/fs.js";
+import ptyRouter, { attachWebSocket } from "./routes/pty.js";
 
 export function createApp() {
   const app = express();
@@ -11,8 +13,11 @@ export function createApp() {
   app.use(execRouter);
   app.use(gitRouter);
   app.use(fsRouter);
+  app.use(ptyRouter);
   return app;
 }
+
+export { attachWebSocket } from "./routes/pty.js";
 
 // Only start the server when run directly, not during tests
 const isDirectRun =
@@ -23,7 +28,9 @@ const isDirectRun =
 if (isDirectRun) {
   const port = parseInt(process.env.SIDECAR_PORT ?? "9999", 10);
   const app = createApp();
-  app.listen(port, () => {
+  const server = http.createServer(app);
+  attachWebSocket(server);
+  server.listen(port, () => {
     console.log(`Sidecar listening on port ${port}`);
   });
 }
