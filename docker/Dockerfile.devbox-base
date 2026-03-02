@@ -1,0 +1,51 @@
+# Patchwork Devbox Base Image
+#
+# Multi-stage build: stage 1 builds the sidecar, stage 2 creates the runtime image.
+# Prerequisites: run `npm run build -w packages/sidecar` before building, or
+# rely on stage 1 to build it from source.
+
+# --- Stage 1: Build the sidecar ---
+FROM node:20-slim AS builder
+
+WORKDIR /build
+
+# Copy root workspace files
+COPY package.json package-lock.json tsconfig.base.json ./
+COPY packages/sidecar/package.json packages/sidecar/tsconfig.json packages/sidecar/
+COPY packages/sidecar/src packages/sidecar/src
+
+# Install dependencies and build sidecar
+RUN npm ci --workspace=packages/sidecar --include-workspace-root && \
+    npm run build -w packages/sidecar
+
+# --- Stage 2: Runtime image ---
+FROM node:20-slim
+
+# Install common dev tools
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+      git \
+      curl \
+      jq \
+      ca-certificates \
+      openssh-client && \
+    rm -rf /var/lib/apt/lists/*
+
+# Set up workspace directory
+WORKDIR /workspace
+
+# Copy built sidecar from builder stage
+COPY --from=builder /build/packages/sidecar/dist /opt/sidecar/dist
+COPY --from=builder /build/packages/sidecar/package.json /opt/sidecar/
+COPY --from=builder /build/packages/sidecar/node_modules /opt/sidecar/node_modules
+
+# Configure sidecar
+ENV SIDECAR_PORT=9999
+EXPOSE 9999
+
+# Git configuration for commits inside devbox
+RUN git config --system user.email "patchwork@devbox" && \
+    git config --system user.name "Patchwork Devbox"
+
+# Default command: start the sidecar
+CMD ["node", "/opt/sidecar/dist/index.js"]

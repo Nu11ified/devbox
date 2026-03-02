@@ -1,0 +1,28 @@
+# Patchwork Devbox — Node.js Development Image
+#
+# Extends the base devbox image with Node.js development tools.
+# Build the base image first: docker build -f docker/Dockerfile.devbox-base -t patchwork-devbox-base .
+
+FROM patchwork-devbox-base AS base
+
+# Node.js is already available from the base image (node:20-slim).
+# Install additional Node.js development tools globally.
+RUN npm install -g \
+      eslint@^9 \
+      prettier@^3 \
+      typescript@^5 \
+      tsx@^4 \
+      npm-check-updates@^17 && \
+    npm cache clean --force
+
+# Verify tools are installed
+RUN node --version && \
+    npm --version && \
+    npx --version && \
+    eslint --version && \
+    prettier --version && \
+    tsc --version
+
+WORKDIR /workspace
+
+CMD ["node", "/opt/sidecar/dist/index.js"]
