@@ -1,5 +1,6 @@
 import express from "express";
 import { templatesRouter } from "./api/templates.js";
+import { devboxesRouter } from "./api/devboxes.js";
 
 export function createApp(): express.Express {
   const app = express();
@@ -11,6 +12,7 @@ export function createApp(): express.Express {
   });
 
   app.use("/api/templates", templatesRouter);
+  app.use("/api/devboxes", devboxesRouter);
 
   return app;
 }
