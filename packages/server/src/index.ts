@@ -1,14 +1,22 @@
 import express from "express";
 import { createServer } from "node:http";
+import { randomBytes } from "node:crypto";
 import { templatesRouter } from "./api/templates.js";
 import { devboxesRouter } from "./api/devboxes.js";
 import { runsRouter } from "./api/runs.js";
+import { authRouter } from "./api/auth.js";
 import { setupWebSocket } from "./api/ws.js";
+import { AuthProxy } from "./auth/proxy.js";
 
 export function createApp(): express.Express {
   const app = express();
 
   app.use(express.json());
+
+  // Auth proxy with encryption key from env or random (dev)
+  const encKeyHex = process.env.PATCHWORK_ENCRYPTION_KEY;
+  const encKey = encKeyHex ? Buffer.from(encKeyHex, "hex") : randomBytes(32);
+  const authProxy = new AuthProxy(encKey);
 
   app.get("/api/health", (_req, res) => {
     res.json({ status: "ok", version: "0.1.0" });
@@ -17,6 +25,7 @@ export function createApp(): express.Express {
   app.use("/api/templates", templatesRouter);
   app.use("/api/devboxes", devboxesRouter);
   app.use("/api/runs", runsRouter);
+  app.use("/api/auth", authRouter(authProxy));
 
   return app;
 }
