@@ -2,6 +2,7 @@ import express from "express";
 import healthRouter from "./routes/health.js";
 import execRouter from "./routes/exec.js";
 import gitRouter from "./routes/git.js";
+import fsRouter from "./routes/fs.js";
 
 export function createApp() {
   const app = express();
@@ -9,6 +10,7 @@ export function createApp() {
   app.use(healthRouter);
   app.use(execRouter);
   app.use(gitRouter);
+  app.use(fsRouter);
   return app;
 }
 
