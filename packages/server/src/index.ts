@@ -1,4 +1,5 @@
 import express from "express";
+import { templatesRouter } from "./api/templates.js";
 
 export function createApp(): express.Express {
   const app = express();
@@ -8,6 +9,8 @@ export function createApp(): express.Express {
   app.get("/api/health", (_req, res) => {
     res.json({ status: "ok", version: "0.1.0" });
   });
+
+  app.use("/api/templates", templatesRouter);
 
   return app;
 }
