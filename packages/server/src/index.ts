@@ -1,6 +1,9 @@
 import express from "express";
+import { createServer } from "node:http";
 import { templatesRouter } from "./api/templates.js";
 import { devboxesRouter } from "./api/devboxes.js";
+import { runsRouter } from "./api/runs.js";
+import { setupWebSocket } from "./api/ws.js";
 
 export function createApp(): express.Express {
   const app = express();
@@ -13,6 +16,7 @@ export function createApp(): express.Express {
 
   app.use("/api/templates", templatesRouter);
   app.use("/api/devboxes", devboxesRouter);
+  app.use("/api/runs", runsRouter);
 
   return app;
 }
@@ -26,8 +30,11 @@ const isMain =
 if (isMain) {
   const PORT = parseInt(process.env.PORT || "3001", 10);
   const app = createApp();
+  const server = createServer(app);
 
-  app.listen(PORT, () => {
+  setupWebSocket(server);
+
+  server.listen(PORT, () => {
     console.log(`Patchwork server listening on port ${PORT}`);
   });
 }
