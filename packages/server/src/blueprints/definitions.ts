@@ -1,4 +1,6 @@
 import type { BlueprintDefinition } from "@patchwork/shared";
+import { WRITER_REVIEWER_BLUEPRINT } from "./writer-reviewer.js";
+import { SPEC_IMPLEMENT_REVIEW_BLUEPRINT } from "./spec-implement-review.js";
 
 /**
  * Built-in blueprint definitions expressed as JSON.
@@ -174,7 +176,12 @@ export const MINION_BLUEPRINT: BlueprintDefinition = {
   ],
 };
 
+export { WRITER_REVIEWER_BLUEPRINT } from "./writer-reviewer.js";
+export { SPEC_IMPLEMENT_REVIEW_BLUEPRINT } from "./spec-implement-review.js";
+
 export const BUILTIN_BLUEPRINTS = new Map<string, BlueprintDefinition>([
   ["simple", SIMPLE_BLUEPRINT],
   ["minion", MINION_BLUEPRINT],
+  ["writer-reviewer", WRITER_REVIEWER_BLUEPRINT],
+  ["spec-implement-review", SPEC_IMPLEMENT_REVIEW_BLUEPRINT],
 ]);
