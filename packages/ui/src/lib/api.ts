@@ -217,6 +217,28 @@ class PatchworkAPI {
     return request<Blueprint>(`/api/blueprints/${id}`);
   }
 
+  // Auth
+  async getAuthStatus(): Promise<{
+    claude: { connected: boolean };
+    codex: { connected: boolean };
+  }> {
+    return request("/api/auth/status");
+  }
+
+  async saveToken(
+    provider: "claude" | "codex",
+    token: string,
+  ): Promise<{ ok: boolean }> {
+    return request("/api/auth/tokens", {
+      method: "POST",
+      body: JSON.stringify({ provider, token }),
+    });
+  }
+
+  async removeToken(provider: "claude" | "codex"): Promise<void> {
+    return request(`/api/auth/tokens/${provider}`, { method: "DELETE" });
+  }
+
   // Health
   async health(): Promise<{ status: string; version: string }> {
     return request<{ status: string; version: string }>("/api/health");
