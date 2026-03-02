@@ -1,0 +1,30 @@
+services:
+  postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: patchwork
+      POSTGRES_PASSWORD: patchwork
+      POSTGRES_DB: patchwork
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  server:
+    build:
+      context: .
+      dockerfile: packages/server/Dockerfile
+    depends_on:
+      - postgres
+    ports:
+      - "3001:3001"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - patchwork-data:/data/patchwork
+    environment:
+      DBOS_SYSTEM_DATABASE_URL: postgresql://patchwork:patchwork@postgres:5432/patchwork
+      FILE_STORE_PATH: /data/patchwork
+
+volumes:
+  pgdata:
+  patchwork-data:

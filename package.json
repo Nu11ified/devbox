@@ -1,0 +1,14 @@
+{
+  "name": "patchwork",
+  "private": true,
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces",
+    "test": "npm run test --workspaces --if-present",
+    "dev:server": "npm run dev -w packages/server",
+    "dev:sidecar": "npm run dev -w packages/sidecar",
+    "dev:ui": "npm run dev -w packages/ui"
+  }
+}
