@@ -90,13 +90,14 @@ export function authRouter(proxy: AuthProxy): Router {
 
   // GET /api/auth/status — check token validity for all providers
   router.get("/status", async (_req, res) => {
-    const providers: Record<string, { valid: boolean; expiresIn?: number }> = {};
+    const result: Record<string, { connected: boolean }> = {};
 
     for (const name of VALID_PROVIDERS) {
-      providers[name] = await proxy.checkExpiry(name);
+      const status = await proxy.checkExpiry(name);
+      result[name] = { connected: status.valid };
     }
 
-    res.json({ providers });
+    res.json(result);
   });
 
   return router;

@@ -5,6 +5,7 @@ import { templatesRouter } from "./api/templates.js";
 import { devboxesRouter } from "./api/devboxes.js";
 import { runsRouter } from "./api/runs.js";
 import { issuesRouter } from "./api/issues.js";
+import { blueprintsRouter } from "./api/blueprints.js";
 import { authRouter } from "./api/auth.js";
 import { setupWebSocket } from "./api/ws.js";
 import { AuthProxy } from "./auth/proxy.js";
@@ -31,6 +32,7 @@ export function createApp(): express.Express {
   app.use("/api/devboxes", devboxesRouter);
   app.use("/api/runs", runsRouter);
   app.use("/api/issues", issuesRouter);
+  app.use("/api/blueprints", blueprintsRouter);
   app.use("/api/auth", authRouter(authProxy));
 
   return app;
