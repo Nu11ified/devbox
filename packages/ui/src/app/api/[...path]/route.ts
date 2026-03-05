@@ -13,12 +13,13 @@ async function handleLogin(req: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
   }
 
-  const { username, password } = body;
+  const username = body.username?.trim() || "";
+  const password = body.password?.trim() || "";
   if (!username || !password) {
     return NextResponse.json({ error: "username and password required" }, { status: 400 });
   }
 
-  // Send raw credentials to server's login endpoint (no Base64, no headers)
+  // Send cleaned credentials to server's login endpoint
   let check: Response;
   try {
     check = await fetch(`${SERVER_URL}/api/auth/login`, {

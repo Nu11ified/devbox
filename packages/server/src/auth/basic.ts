@@ -1,13 +1,22 @@
 import type { RequestHandler } from "express";
 
+function clean(s: string | undefined): string {
+  if (!s) return "";
+  let v = s.trim();
+  if ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'"))) {
+    v = v.slice(1, -1);
+  }
+  return v;
+}
+
 /**
  * Basic auth middleware gated on PATCHWORK_USERNAME / PATCHWORK_PASSWORD env vars.
  * When both are set, every request must carry a valid Authorization header.
  * When either is unset, requests pass through (dev mode).
  */
 export function basicAuth(): RequestHandler {
-  const username = process.env.PATCHWORK_USERNAME;
-  const password = process.env.PATCHWORK_PASSWORD;
+  const username = clean(process.env.PATCHWORK_USERNAME);
+  const password = clean(process.env.PATCHWORK_PASSWORD);
 
   return (req, res, next) => {
     if (!username || !password) {
@@ -27,7 +36,9 @@ export function basicAuth(): RequestHandler {
     }
 
     const decoded = Buffer.from(header.slice(6), "base64").toString();
-    const [user, pass] = decoded.split(":");
+    const colonIdx = decoded.indexOf(":");
+    const user = colonIdx === -1 ? decoded : decoded.slice(0, colonIdx);
+    const pass = colonIdx === -1 ? "" : decoded.slice(colonIdx + 1);
 
     if (user === username && pass === password) {
       return next();

@@ -6,30 +6,31 @@ const VALID_PROVIDERS = new Set(["claude", "codex"]);
 export function authRouter(proxy: AuthProxy): Router {
   const router = Router();
 
+  // Strip surrounding quotes and trim whitespace from a value
+  function clean(s: string | undefined): string {
+    if (!s) return "";
+    let v = s.trim();
+    if ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'"))) {
+      v = v.slice(1, -1);
+    }
+    return v;
+  }
+
   // POST /api/auth/login — validate credentials against env vars
   router.post("/login", (req, res) => {
-    const serverUsername = process.env.PATCHWORK_USERNAME;
-    const serverPassword = process.env.PATCHWORK_PASSWORD;
-
-    console.log(`[auth/login] env PATCHWORK_USERNAME set: ${!!serverUsername}, len: ${serverUsername?.length ?? 0}`);
-    console.log(`[auth/login] env PATCHWORK_PASSWORD set: ${!!serverPassword}, len: ${serverPassword?.length ?? 0}`);
-    console.log(`[auth/login] req.body keys: ${JSON.stringify(Object.keys(req.body || {}))}`);
-    console.log(`[auth/login] req.body.username: "${req.body?.username}", len: ${req.body?.username?.length ?? 0}`);
-    console.log(`[auth/login] req.body.password set: ${!!req.body?.password}, len: ${req.body?.password?.length ?? 0}`);
+    const serverUsername = clean(process.env.PATCHWORK_USERNAME);
+    const serverPassword = clean(process.env.PATCHWORK_PASSWORD);
 
     // No auth configured — accept any credentials
     if (!serverUsername || !serverPassword) {
-      console.log("[auth/login] no auth configured, accepting");
       res.json({ authenticated: true });
       return;
     }
 
-    const { username, password } = req.body ?? {};
-    const usernameMatch = username === serverUsername;
-    const passwordMatch = password === serverPassword;
-    console.log(`[auth/login] username match: ${usernameMatch}, password match: ${passwordMatch}`);
+    const username = clean(req.body?.username);
+    const password = clean(req.body?.password);
 
-    if (usernameMatch && passwordMatch) {
+    if (username === serverUsername && password === serverPassword) {
       res.json({ authenticated: true });
       return;
     }
