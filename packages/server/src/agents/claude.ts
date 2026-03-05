@@ -45,10 +45,7 @@ export class ClaudeBackend implements AgentBackend {
     const args = ["--dangerously-skip-permissions"];
     const { sessionId } = await this.sidecar.ptyStart("claude", args);
 
-    const wsUrl = `${(this.sidecar as { baseUrl?: string }).baseUrl ?? ""}`.replace(
-      /^http/,
-      "ws"
-    );
+    const wsUrl = this.sidecar.url.replace(/^http/, "ws");
     const ws = this.wsFactory(`${wsUrl}/pty/stream?id=${sessionId}`);
     this.wsConnections.set(sessionId, ws);
 

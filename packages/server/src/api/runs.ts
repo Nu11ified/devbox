@@ -1,7 +1,7 @@
-import { Router } from "express";
+import { Router, type Router as RouterType } from "express";
 import { getPool } from "../db/queries.js";
 
-export const runsRouter = Router();
+export const runsRouter: RouterType = Router();
 
 // POST /api/runs — create a new run record
 runsRouter.post("/", async (req, res) => {

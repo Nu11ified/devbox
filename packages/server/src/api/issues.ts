@@ -1,4 +1,4 @@
-import { Router } from "express";
+import { Router, type Router as RouterType } from "express";
 import {
   insertIssue,
   findAllIssues,
@@ -7,7 +7,7 @@ import {
   removeIssue,
 } from "../db/queries.js";
 
-export const issuesRouter = Router();
+export const issuesRouter: RouterType = Router();
 
 // POST /api/issues — create a new issue
 issuesRouter.post("/", async (req, res) => {

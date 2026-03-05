@@ -7,6 +7,7 @@ import type { SidecarHttpClient } from "../src/agents/sidecar-client.js";
 
 function createMockSidecarHttpClient(): SidecarHttpClient {
   return {
+    url: "http://localhost:9999",
     exec: vi.fn().mockResolvedValue({ exitCode: 0, stdout: "", stderr: "" }),
     gitDiff: vi.fn().mockResolvedValue(""),
     gitApply: vi.fn().mockResolvedValue({ success: true }),

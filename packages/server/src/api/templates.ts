@@ -1,4 +1,4 @@
-import { Router } from "express";
+import { Router, type Router as RouterType } from "express";
 import {
   insertTemplate,
   findAllTemplates,
@@ -7,7 +7,7 @@ import {
   removeTemplate,
 } from "../db/queries.js";
 
-export const templatesRouter = Router();
+export const templatesRouter: RouterType = Router();
 
 // POST /api/templates
 templatesRouter.post("/", async (req, res) => {

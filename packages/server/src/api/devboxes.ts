@@ -1,9 +1,9 @@
-import { Router } from "express";
+import { Router, type Router as RouterType } from "express";
 import { DevboxManager } from "../devbox/manager.js";
 
 const manager = new DevboxManager();
 
-export const devboxesRouter = Router();
+export const devboxesRouter: RouterType = Router();
 
 // GET /api/devboxes — list active devboxes
 devboxesRouter.get("/", async (_req, res) => {
