@@ -10,6 +10,7 @@ import { setupWebSocket } from "./api/ws.js";
 import { AuthProxy } from "./auth/proxy.js";
 import { basicAuth } from "./auth/basic.js";
 import { Orchestrator } from "./orchestrator/index.js";
+import { runMigration } from "./db/migrate.js";
 
 export function createApp(): express.Express {
   const app = express();
@@ -42,21 +43,25 @@ const isMain =
     process.argv[1].endsWith("/index.js"));
 
 if (isMain) {
-  const PORT = parseInt(process.env.PORT || "3001", 10);
-  const app = createApp();
-  const server = createServer(app);
+  (async () => {
+    await runMigration();
 
-  setupWebSocket(server);
+    const PORT = parseInt(process.env.PORT || "3001", 10);
+    const app = createApp();
+    const server = createServer(app);
 
-  server.listen(PORT, () => {
-    console.log(`Patchwork server listening on port ${PORT}`);
-  });
+    setupWebSocket(server);
 
-  const orchestrator = new Orchestrator();
-  orchestrator.start();
+    server.listen(PORT, () => {
+      console.log(`Patchwork server listening on port ${PORT}`);
+    });
 
-  process.on("SIGTERM", () => {
-    orchestrator.stop();
-    server.close();
-  });
+    const orchestrator = new Orchestrator();
+    orchestrator.start();
+
+    process.on("SIGTERM", () => {
+      orchestrator.stop();
+      server.close();
+    });
+  })();
 }

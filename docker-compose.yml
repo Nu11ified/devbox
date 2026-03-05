@@ -22,11 +22,15 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
       - patchwork-data:/data/patchwork
     environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-patchwork}:${POSTGRES_PASSWORD:-patchwork}@postgres:5432/${POSTGRES_DB:-patchwork}
       DBOS_SYSTEM_DATABASE_URL: postgresql://${POSTGRES_USER:-patchwork}:${POSTGRES_PASSWORD:-patchwork}@postgres:5432/${POSTGRES_DB:-patchwork}
       FILE_STORE_PATH: /data/patchwork
       PATCHWORK_ENCRYPTION_KEY: ${PATCHWORK_ENCRYPTION_KEY:-}
       PATCHWORK_USERNAME: ${PATCHWORK_USERNAME:-}
       PATCHWORK_PASSWORD: ${PATCHWORK_PASSWORD:-}
+      PATCHWORK_POLL_INTERVAL_MS: ${PATCHWORK_POLL_INTERVAL_MS:-5000}
+      PATCHWORK_MAX_CONCURRENT: ${PATCHWORK_MAX_CONCURRENT:-5}
+      PATCHWORK_STALL_TIMEOUT_MS: ${PATCHWORK_STALL_TIMEOUT_MS:-600000}
 
   ui:
     build:

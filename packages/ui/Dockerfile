@@ -14,7 +14,7 @@ COPY packages/shared/src packages/shared/src
 COPY packages/ui/ packages/ui/
 
 # Install dependencies and build
-RUN bun install --frozen-lockfile && \
+RUN bun install && \
     bun run --filter @patchwork/shared build && \
     bun run --filter @patchwork/ui build
 

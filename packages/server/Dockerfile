@@ -15,7 +15,7 @@ COPY packages/server/package.json packages/server/tsconfig.json packages/server/
 COPY packages/server/src packages/server/src
 
 # Install dependencies and build
-RUN bun install --frozen-lockfile && \
+RUN bun install && \
     bun run --filter @patchwork/shared build && \
     bun run --filter @patchwork/server build
 
@@ -26,6 +26,7 @@ WORKDIR /app
 
 # Copy built output and production node_modules
 COPY --from=builder /build/packages/server/dist ./dist
+COPY --from=builder /build/packages/server/src/db/schema.sql ./dist/db/schema.sql
 COPY --from=builder /build/packages/server/package.json ./
 COPY --from=builder /build/packages/shared/dist ./node_modules/@patchwork/shared/dist
 COPY --from=builder /build/packages/shared/package.json ./node_modules/@patchwork/shared/
