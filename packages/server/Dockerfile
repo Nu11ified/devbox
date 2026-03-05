@@ -19,26 +19,31 @@ RUN bun install && \
     bun run --filter @patchwork/shared build && \
     bun run --filter @patchwork/server build
 
+# Prepare a clean production install for the server
+# Remove workspace dep, install only external packages, then add shared manually
+RUN cp packages/server/package.json /tmp/server-package.json && \
+    sed -i '/"@patchwork\/shared"/d' /tmp/server-package.json && \
+    mkdir -p /prod && \
+    cp /tmp/server-package.json /prod/package.json && \
+    cd /prod && \
+    bun install --production
+
 # --- Runtime ---
 FROM oven/bun:1-slim
 
 WORKDIR /app
 
-# Copy built output and schema
+# Copy built server output and schema
 COPY --from=builder /build/packages/server/dist ./dist
 COPY --from=builder /build/packages/server/src/db/schema.sql ./dist/db/schema.sql
-
-# Copy the built @patchwork/shared package (workspace dep)
-COPY --from=builder /build/packages/shared/dist ./packages/shared/dist
-COPY --from=builder /build/packages/shared/package.json ./packages/shared/
-
-# Create a standalone package.json that replaces workspace:* with a file reference
-# so bun install works outside the monorepo
 COPY --from=builder /build/packages/server/package.json ./
-RUN sed -i 's|"@patchwork/shared": "workspace:\*"|"@patchwork/shared": "file:./packages/shared"|' package.json
 
-# Install production dependencies (resolves real packages, not symlinks)
-RUN bun install --production
+# Copy production node_modules (installed without workspace deps)
+COPY --from=builder /prod/node_modules ./node_modules
+
+# Add @patchwork/shared built output directly into node_modules
+COPY --from=builder /build/packages/shared/dist ./node_modules/@patchwork/shared/dist
+COPY --from=builder /build/packages/shared/package.json ./node_modules/@patchwork/shared/
 
 EXPOSE 3001
 
