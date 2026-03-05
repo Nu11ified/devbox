@@ -22,19 +22,24 @@ async function handleLogin(req: NextRequest): Promise<NextResponse> {
 
   let check: Response;
   try {
-    check = await fetch(`${SERVER_URL}/api/templates`, {
+    check = await fetch(`${SERVER_URL}/api/auth/verify`, {
       headers: { Authorization: `Basic ${credentials}` },
     });
   } catch (err) {
     console.error(`[login] Failed to reach backend at ${SERVER_URL}:`, err);
     return NextResponse.json(
-      { error: `Cannot reach backend server at ${SERVER_URL}` },
+      { error: `Cannot reach backend server` },
       { status: 502 },
     );
   }
 
-  if (!check.ok) {
+  if (check.status === 401 || check.status === 403) {
     return NextResponse.json({ error: "Invalid credentials" }, { status: 401 });
+  }
+  if (!check.ok) {
+    const detail = await check.text().catch(() => "");
+    console.error(`[login] Auth verify returned ${check.status}: ${detail}`);
+    return NextResponse.json({ error: "Server error during login" }, { status: 502 });
   }
 
   const res = NextResponse.json({ ok: true });
