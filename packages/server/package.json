@@ -11,6 +11,7 @@
     "db:migrate": "tsx src/db/migrate.ts"
   },
   "dependencies": {
+    "@patchwork/shared": "workspace:*",
     "@dbos-inc/dbos-sdk": "^4.9.11",
     "dockerode": "^4.0.0",
     "express": "^5.0.1",
