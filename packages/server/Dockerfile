@@ -1,5 +1,5 @@
 # Patchwork Server
-# Multi-stage: bun build → node runtime
+# Multi-stage: bun build → bun runtime
 
 FROM oven/bun:1 AS builder
 
@@ -20,11 +20,11 @@ RUN bun install && \
     bun run --filter @patchwork/server build
 
 # --- Runtime ---
-FROM node:20-slim
+FROM oven/bun:1-slim
 
 WORKDIR /app
 
-# Copy built output and production node_modules
+# Copy built output, schema, and full workspace node_modules
 COPY --from=builder /build/packages/server/dist ./dist
 COPY --from=builder /build/packages/server/src/db/schema.sql ./dist/db/schema.sql
 COPY --from=builder /build/packages/server/package.json ./
@@ -34,4 +34,4 @@ COPY --from=builder /build/node_modules ./node_modules
 
 EXPOSE 3001
 
-CMD ["node", "dist/index.js"]
+CMD ["bun", "run", "dist/index.js"]

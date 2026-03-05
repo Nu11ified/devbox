@@ -1,5 +1,5 @@
 # Patchwork UI (Next.js)
-# Multi-stage: bun install + next build → node runtime
+# Multi-stage: bun install + next build (standalone) → node runtime
 
 FROM oven/bun:1 AS builder
 
@@ -23,12 +23,14 @@ FROM node:20-slim
 
 WORKDIR /app
 
-COPY --from=builder /build/packages/ui/.next ./.next
-COPY --from=builder /build/packages/ui/public ./public
-COPY --from=builder /build/packages/ui/package.json ./
-COPY --from=builder /build/node_modules ./node_modules
-COPY --from=builder /build/packages/ui/next.config.ts ./
+# Next.js standalone output bundles all deps — no separate node_modules needed
+COPY --from=builder /build/packages/ui/.next/standalone ./
+COPY --from=builder /build/packages/ui/.next/static ./packages/ui/.next/static
+COPY --from=builder /build/packages/ui/public ./packages/ui/public
+
+ENV PORT=3000
+ENV HOSTNAME=0.0.0.0
 
 EXPOSE 3000
 
-CMD ["npx", "next", "start"]
+CMD ["node", "packages/ui/server.js"]
