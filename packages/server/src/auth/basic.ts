@@ -14,8 +14,8 @@ export function basicAuth(): RequestHandler {
       return next();
     }
 
-    // Allow health check without auth
-    if (req.path === "/api/health") {
+    // Allow unauthenticated access to health and login
+    if (req.path === "/api/health" || req.path === "/api/auth/login") {
       return next();
     }
 

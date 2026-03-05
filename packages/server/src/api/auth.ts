@@ -6,6 +6,26 @@ const VALID_PROVIDERS = new Set(["claude", "codex"]);
 export function authRouter(proxy: AuthProxy): Router {
   const router = Router();
 
+  // POST /api/auth/login — validate credentials against env vars
+  router.post("/login", (req, res) => {
+    const serverUsername = process.env.PATCHWORK_USERNAME;
+    const serverPassword = process.env.PATCHWORK_PASSWORD;
+
+    // No auth configured — accept any credentials
+    if (!serverUsername || !serverPassword) {
+      res.json({ authenticated: true });
+      return;
+    }
+
+    const { username, password } = req.body;
+    if (username === serverUsername && password === serverPassword) {
+      res.json({ authenticated: true });
+      return;
+    }
+
+    res.status(401).json({ error: "Invalid credentials" });
+  });
+
   // POST /api/auth/tokens — store encrypted token
   router.post("/tokens", async (req, res) => {
     const { provider, token } = req.body;

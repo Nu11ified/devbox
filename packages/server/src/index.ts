@@ -27,11 +27,6 @@ export function createApp(): express.Express {
     res.json({ status: "ok", version: "0.1.0" });
   });
 
-  // Protected endpoint for credential verification (no DB access)
-  app.get("/api/auth/verify", (_req, res) => {
-    res.json({ authenticated: true });
-  });
-
   app.use("/api/templates", templatesRouter);
   app.use("/api/devboxes", devboxesRouter);
   app.use("/api/runs", runsRouter);

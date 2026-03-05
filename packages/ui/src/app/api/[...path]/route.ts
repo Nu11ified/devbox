@@ -4,7 +4,7 @@ import { NextRequest, NextResponse } from "next/server";
 const SERVER_URL = process.env.API_SERVER_URL || "http://localhost:3001";
 const AUTH_COOKIE = "patchwork-auth";
 
-// POST /api/auth/login — verify credentials and set cookie
+// POST /api/auth/login — verify credentials via server and set cookie
 async function handleLogin(req: NextRequest): Promise<NextResponse> {
   let body: { username?: string; password?: string };
   try {
@@ -18,30 +18,33 @@ async function handleLogin(req: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ error: "username and password required" }, { status: 400 });
   }
 
-  const credentials = Buffer.from(`${username}:${password}`).toString("base64");
-
+  // Send raw credentials to server's login endpoint (no Base64, no headers)
   let check: Response;
   try {
-    check = await fetch(`${SERVER_URL}/api/auth/verify`, {
-      headers: { Authorization: `Basic ${credentials}` },
+    check = await fetch(`${SERVER_URL}/api/auth/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username, password }),
     });
   } catch (err) {
     console.error(`[login] Failed to reach backend at ${SERVER_URL}:`, err);
     return NextResponse.json(
-      { error: `Cannot reach backend server` },
+      { error: "Cannot reach backend server" },
       { status: 502 },
     );
   }
 
-  if (check.status === 401 || check.status === 403) {
+  if (check.status === 401) {
     return NextResponse.json({ error: "Invalid credentials" }, { status: 401 });
   }
   if (!check.ok) {
     const detail = await check.text().catch(() => "");
-    console.error(`[login] Auth verify returned ${check.status}: ${detail}`);
+    console.error(`[login] Server login returned ${check.status}: ${detail}`);
     return NextResponse.json({ error: "Server error during login" }, { status: 502 });
   }
 
+  // Store credentials for proxying subsequent API requests
+  const credentials = Buffer.from(`${username}:${password}`).toString("base64");
   const res = NextResponse.json({ ok: true });
   res.cookies.set(AUTH_COOKIE, credentials, {
     httpOnly: true,
@@ -90,7 +93,7 @@ async function proxy(req: NextRequest, path: string): Promise<NextResponse> {
   } catch (err) {
     console.error(`[proxy] Failed to reach backend at ${url}:`, err);
     return NextResponse.json(
-      { error: `Cannot reach backend server` },
+      { error: "Cannot reach backend server" },
       { status: 502 },
     );
   }
