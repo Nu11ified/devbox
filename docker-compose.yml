@@ -42,7 +42,7 @@ services:
     ports:
       - "${UI_PORT:-3000}:3000"
     environment:
-      NEXT_PUBLIC_API_URL: http://server:3001
+      API_SERVER_URL: http://server:3001
 
 volumes:
   pgdata:

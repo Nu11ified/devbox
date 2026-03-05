@@ -11,8 +11,10 @@ import {
   Menu,
   X,
   LayoutGrid,
+  LogOut,
 } from "lucide-react";
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 
@@ -30,7 +32,14 @@ const bottomLinks = [
 
 export function Nav() {
   const pathname = usePathname();
+  const router = useRouter();
   const [open, setOpen] = useState(false);
+
+  async function handleLogout() {
+    await fetch("/api/auth/logout", { method: "POST" });
+    router.push("/login");
+    router.refresh();
+  }
 
   const allLinks = [...mainLinks, ...bottomLinks];
 
@@ -85,6 +94,13 @@ export function Nav() {
               {link.label}
             </Link>
           ))}
+          <button
+            onClick={handleLogout}
+            className="flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors text-sidebar-foreground/70 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground"
+          >
+            <LogOut className="h-4 w-4" />
+            Sign out
+          </button>
         </nav>
       </aside>
 
@@ -122,6 +138,13 @@ export function Nav() {
               {link.label}
             </Link>
           ))}
+          <button
+            onClick={() => { setOpen(false); handleLogout(); }}
+            className="flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors min-h-[44px] text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+          >
+            <LogOut className="h-4 w-4" />
+            Sign out
+          </button>
         </nav>
       )}
     </>

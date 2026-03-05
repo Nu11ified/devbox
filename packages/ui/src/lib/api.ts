@@ -125,7 +125,8 @@ export type Blueprint = BlueprintDefinition;
 
 // ── API Client ─────────────────────────────────────────────────────
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
+// API requests are proxied through Next.js rewrites (same origin, no CORS)
+const API_BASE = "";
 
 class ApiError extends Error {
   constructor(
