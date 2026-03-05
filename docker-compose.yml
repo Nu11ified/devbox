@@ -23,16 +23,14 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - patchwork-data:/data/patchwork
+    # env_file passes values literally (no $ interpolation)
+    # Use this for credentials that may contain special characters
+    env_file:
+      - .env
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-patchwork}:${POSTGRES_PASSWORD:-patchwork}@postgres:5432/${POSTGRES_DB:-patchwork}
       DBOS_SYSTEM_DATABASE_URL: postgresql://${POSTGRES_USER:-patchwork}:${POSTGRES_PASSWORD:-patchwork}@postgres:5432/${POSTGRES_DB:-patchwork}
       FILE_STORE_PATH: /data/patchwork
-      PATCHWORK_ENCRYPTION_KEY: ${PATCHWORK_ENCRYPTION_KEY:-}
-      PATCHWORK_USERNAME: ${PATCHWORK_USERNAME:-}
-      PATCHWORK_PASSWORD: ${PATCHWORK_PASSWORD:-}
-      PATCHWORK_POLL_INTERVAL_MS: ${PATCHWORK_POLL_INTERVAL_MS:-5000}
-      PATCHWORK_MAX_CONCURRENT: ${PATCHWORK_MAX_CONCURRENT:-5}
-      PATCHWORK_STALL_TIMEOUT_MS: ${PATCHWORK_STALL_TIMEOUT_MS:-600000}
     networks:
       - patchwork
 
@@ -45,6 +43,8 @@ services:
       - server
     ports:
       - "${UI_PORT:-3000}:3000"
+    env_file:
+      - .env
     environment:
       API_SERVER_URL: ${API_SERVER_URL:-http://server:3001}
     networks:
