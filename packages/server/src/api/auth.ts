@@ -11,19 +11,43 @@ export function authRouter(proxy: AuthProxy): Router {
     const serverUsername = process.env.PATCHWORK_USERNAME;
     const serverPassword = process.env.PATCHWORK_PASSWORD;
 
+    console.log(`[auth/login] env PATCHWORK_USERNAME set: ${!!serverUsername}, len: ${serverUsername?.length ?? 0}`);
+    console.log(`[auth/login] env PATCHWORK_PASSWORD set: ${!!serverPassword}, len: ${serverPassword?.length ?? 0}`);
+    console.log(`[auth/login] req.body keys: ${JSON.stringify(Object.keys(req.body || {}))}`);
+    console.log(`[auth/login] req.body.username: "${req.body?.username}", len: ${req.body?.username?.length ?? 0}`);
+    console.log(`[auth/login] req.body.password set: ${!!req.body?.password}, len: ${req.body?.password?.length ?? 0}`);
+
     // No auth configured — accept any credentials
     if (!serverUsername || !serverPassword) {
+      console.log("[auth/login] no auth configured, accepting");
       res.json({ authenticated: true });
       return;
     }
 
-    const { username, password } = req.body;
-    if (username === serverUsername && password === serverPassword) {
+    const { username, password } = req.body ?? {};
+    const usernameMatch = username === serverUsername;
+    const passwordMatch = password === serverPassword;
+    console.log(`[auth/login] username match: ${usernameMatch}, password match: ${passwordMatch}`);
+
+    if (usernameMatch && passwordMatch) {
       res.json({ authenticated: true });
       return;
     }
 
     res.status(401).json({ error: "Invalid credentials" });
+  });
+
+  // GET /api/auth/debug — show auth config (no secrets)
+  router.get("/debug", (_req, res) => {
+    const u = process.env.PATCHWORK_USERNAME;
+    const p = process.env.PATCHWORK_PASSWORD;
+    res.json({
+      authEnabled: !!(u && p),
+      usernameLength: u?.length ?? 0,
+      passwordLength: p?.length ?? 0,
+      usernameFirst2: u?.slice(0, 2) ?? "",
+      serverVersion: "2025-03-05-v2",
+    });
   });
 
   // POST /api/auth/tokens — store encrypted token

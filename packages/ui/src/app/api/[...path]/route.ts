@@ -34,12 +34,14 @@ async function handleLogin(req: NextRequest): Promise<NextResponse> {
     );
   }
 
+  const responseBody = await check.text().catch(() => "");
+  console.log(`[login] Server returned ${check.status}: ${responseBody}`);
+
   if (check.status === 401) {
     return NextResponse.json({ error: "Invalid credentials" }, { status: 401 });
   }
   if (!check.ok) {
-    const detail = await check.text().catch(() => "");
-    console.error(`[login] Server login returned ${check.status}: ${detail}`);
+    console.error(`[login] Server login error ${check.status}: ${responseBody}`);
     return NextResponse.json({ error: "Server error during login" }, { status: 502 });
   }
 
