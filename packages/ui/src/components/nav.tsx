@@ -10,12 +10,14 @@ import {
   Settings,
   Menu,
   X,
+  LayoutGrid,
 } from "lucide-react";
 import { useState } from "react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 
 const mainLinks = [
+  { href: "/board", label: "Board", icon: LayoutGrid },
   { href: "/runs", label: "Runs", icon: Play },
   { href: "/runs/new", label: "New Run", icon: PlusCircle },
   { href: "/templates", label: "Templates", icon: Box },
@@ -35,6 +37,9 @@ export function Nav() {
   function isActive(href: string) {
     if (href === "/runs") {
       return pathname === "/runs" || (pathname.startsWith("/runs/") && !pathname.startsWith("/runs/new"));
+    }
+    if (href === "/board") {
+      return pathname.startsWith("/board");
     }
     return pathname.startsWith(href);
   }

@@ -4,10 +4,12 @@ import { randomBytes } from "node:crypto";
 import { templatesRouter } from "./api/templates.js";
 import { devboxesRouter } from "./api/devboxes.js";
 import { runsRouter } from "./api/runs.js";
+import { issuesRouter } from "./api/issues.js";
 import { authRouter } from "./api/auth.js";
 import { setupWebSocket } from "./api/ws.js";
 import { AuthProxy } from "./auth/proxy.js";
 import { basicAuth } from "./auth/basic.js";
+import { Orchestrator } from "./orchestrator/index.js";
 
 export function createApp(): express.Express {
   const app = express();
@@ -27,6 +29,7 @@ export function createApp(): express.Express {
   app.use("/api/templates", templatesRouter);
   app.use("/api/devboxes", devboxesRouter);
   app.use("/api/runs", runsRouter);
+  app.use("/api/issues", issuesRouter);
   app.use("/api/auth", authRouter(authProxy));
 
   return app;
@@ -47,5 +50,13 @@ if (isMain) {
 
   server.listen(PORT, () => {
     console.log(`Patchwork server listening on port ${PORT}`);
+  });
+
+  const orchestrator = new Orchestrator();
+  orchestrator.start();
+
+  process.on("SIGTERM", () => {
+    orchestrator.stop();
+    server.close();
   });
 }

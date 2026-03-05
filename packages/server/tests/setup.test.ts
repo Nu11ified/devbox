@@ -51,6 +51,7 @@ describe("Server setup", () => {
         "patches",
         "transcript_events",
         "artifacts",
+        "issues",
       ];
 
       for (const table of tables) {
@@ -81,6 +82,8 @@ describe("Server setup", () => {
         "idx_transcript_run_id",
         "idx_transcript_created",
         "idx_artifacts_run_id",
+        "idx_issues_status",
+        "idx_issues_priority",
       ];
 
       for (const idx of indexes) {

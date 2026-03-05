@@ -88,6 +88,38 @@ export interface CreateDevboxRequest {
   branch?: string;
 }
 
+export interface IssueItem {
+  id: string;
+  identifier: string;
+  title: string;
+  body: string;
+  repo: string;
+  branch: string;
+  status: string;
+  priority: number;
+  blueprint_id: string;
+  template_id: string | null;
+  assignee: string | null;
+  run_id: string | null;
+  labels: string[];
+  retry_count: number;
+  last_error: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreateIssueRequest {
+  title: string;
+  body?: string;
+  repo: string;
+  branch?: string;
+  priority?: number;
+  blueprintId?: string;
+  templateId?: string;
+  assignee?: string;
+  labels?: string[];
+}
+
 export type Template = DevboxTemplate;
 export type Blueprint = BlueprintDefinition;
 
@@ -215,6 +247,46 @@ class PatchworkAPI {
 
   async getBlueprint(id: string): Promise<Blueprint> {
     return request<Blueprint>(`/api/blueprints/${id}`);
+  }
+
+  // Issues
+  async listIssues(filters?: {
+    status?: string;
+    repo?: string;
+    priority?: number;
+  }): Promise<IssueItem[]> {
+    const params = new URLSearchParams();
+    if (filters?.status) params.set("status", filters.status);
+    if (filters?.repo) params.set("repo", filters.repo);
+    if (filters?.priority !== undefined) params.set("priority", String(filters.priority));
+    const qs = params.toString();
+    return request<IssueItem[]>(`/api/issues${qs ? `?${qs}` : ""}`);
+  }
+
+  async getIssue(id: string): Promise<IssueItem> {
+    return request<IssueItem>(`/api/issues/${id}`);
+  }
+
+  async createIssue(input: CreateIssueRequest): Promise<IssueItem> {
+    return request<IssueItem>("/api/issues", {
+      method: "POST",
+      body: JSON.stringify(input),
+    });
+  }
+
+  async updateIssue(id: string, fields: Partial<CreateIssueRequest & { status: string }>): Promise<IssueItem> {
+    return request<IssueItem>(`/api/issues/${id}`, {
+      method: "PUT",
+      body: JSON.stringify(fields),
+    });
+  }
+
+  async deleteIssue(id: string): Promise<void> {
+    return request<void>(`/api/issues/${id}`, { method: "DELETE" });
+  }
+
+  async dispatchIssue(id: string): Promise<IssueItem> {
+    return request<IssueItem>(`/api/issues/${id}/dispatch`, { method: "POST" });
   }
 
   // Auth

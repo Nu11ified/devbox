@@ -94,6 +94,33 @@ CREATE TABLE IF NOT EXISTS artifacts (
   created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- Issues (orchestrator issue board)
+DO $$ BEGIN
+  CREATE SEQUENCE issue_seq START 1;
+EXCEPTION WHEN duplicate_table THEN
+  NULL;
+END $$;
+
+CREATE TABLE IF NOT EXISTS issues (
+  id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  identifier       TEXT NOT NULL UNIQUE,  -- PW-1, PW-2, ...
+  title            TEXT NOT NULL,
+  body             TEXT NOT NULL DEFAULT '',
+  repo             TEXT NOT NULL,
+  branch           TEXT NOT NULL DEFAULT 'main',
+  status           TEXT NOT NULL DEFAULT 'open',
+  priority         INTEGER NOT NULL DEFAULT 2,  -- 0=urgent, 1=high, 2=medium, 3=low
+  blueprint_id     TEXT NOT NULL DEFAULT 'simple',
+  template_id      UUID REFERENCES devbox_templates(id),
+  assignee         TEXT,
+  run_id           UUID REFERENCES runs(id),
+  labels           JSONB NOT NULL DEFAULT '[]',
+  retry_count      INTEGER NOT NULL DEFAULT 0,
+  last_error       TEXT,
+  created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at       TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 -- Indexes
 CREATE INDEX IF NOT EXISTS idx_runs_status ON runs(status);
 CREATE INDEX IF NOT EXISTS idx_runs_created_by ON runs(created_by);
@@ -102,3 +129,5 @@ CREATE INDEX IF NOT EXISTS idx_patches_run_id ON patches(run_id);
 CREATE INDEX IF NOT EXISTS idx_transcript_run_id ON transcript_events(run_id);
 CREATE INDEX IF NOT EXISTS idx_transcript_created ON transcript_events(created_at);
 CREATE INDEX IF NOT EXISTS idx_artifacts_run_id ON artifacts(run_id);
+CREATE INDEX IF NOT EXISTS idx_issues_status ON issues(status);
+CREATE INDEX IF NOT EXISTS idx_issues_priority ON issues(priority);

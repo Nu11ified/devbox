@@ -105,6 +105,30 @@ export interface DevboxTemplate {
   repos: string[];
 }
 
+// Issue types
+
+export type IssueStatus = "open" | "queued" | "in_progress" | "review" | "done" | "cancelled";
+
+export interface Issue {
+  id: string;
+  identifier: string;
+  title: string;
+  body: string;
+  repo: string;
+  branch: string;
+  status: IssueStatus;
+  priority: number;
+  blueprintId: string;
+  templateId: string | null;
+  assignee: string | null;
+  runId: string | null;
+  labels: string[];
+  retryCount: number;
+  lastError: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 // Run types
 
 export type RunStatus =
