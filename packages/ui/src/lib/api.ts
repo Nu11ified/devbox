@@ -97,18 +97,19 @@ export interface IssueItem {
   branch: string;
   status: string;
   priority: number;
-  blueprint_id: string;
-  template_id: string | null;
+  blueprintId: string;
+  templateId: string | null;
   assignee: string | null;
-  run_id: string | null;
+  runId: string | null;
   labels: string[];
-  retry_count: number;
-  last_error: string | null;
-  created_at: string;
-  updated_at: string;
-  github_issue_id?: number;
-  github_issue_url?: string;
-  github_synced_at?: string;
+  retryCount: number;
+  lastError: string | null;
+  createdAt: string;
+  updatedAt: string;
+  githubIssueId?: number | null;
+  githubIssueUrl?: string | null;
+  githubSyncedAt?: string | null;
+  createdByUserId?: string | null;
 }
 
 export interface CreateIssueRequest {

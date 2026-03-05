@@ -11,12 +11,15 @@ COPY package.json bun.lock tsconfig.base.json ./
 # Copy packages needed for UI build
 COPY packages/shared/package.json packages/shared/tsconfig.json packages/shared/
 COPY packages/shared/src packages/shared/src
+COPY packages/server/package.json packages/server/
 COPY packages/server/prisma packages/server/prisma
 COPY packages/ui/ packages/ui/
 
 # Install dependencies, generate Prisma client, and build
+# Note: prisma generate must run from server dir where prisma is a devDep,
+# so bun resolves it from node_modules instead of trying npm auto-install
 RUN bun install && \
-    cd packages/ui && bunx prisma generate --schema=../server/prisma/schema.prisma && cd ../.. && \
+    cd packages/server && bun run prisma generate && cd ../.. && \
     bun run --filter @patchwork/shared build && \
     bun run --filter @patchwork/ui build
 

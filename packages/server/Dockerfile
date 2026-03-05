@@ -17,7 +17,7 @@ COPY packages/server/prisma packages/server/prisma
 
 # Install dependencies, generate Prisma client, and build
 RUN bun install && \
-    cd packages/server && bunx prisma generate && cd ../.. && \
+    cd packages/server && bun run prisma generate && cd ../.. && \
     bun run --filter @patchwork/shared build && \
     bun run --filter @patchwork/server build
 
