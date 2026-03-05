@@ -1,0 +1,259 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Existing tables (preserve exact column names via @map/@@map) ───
+
+model DevboxTemplate {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name           String   @unique
+  baseImage      String   @map("base_image")
+  toolBundles    Json     @default("[]") @map("tool_bundles")
+  envVars        Json     @default("{}") @map("env_vars")
+  bootstrap      Json     @default("[]")
+  resourceLimits Json     @map("resource_limits")
+  networkPolicy  String   @default("restricted") @map("network_policy")
+  repos          Json     @default("[]")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt      DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  devboxes Devbox[]
+  issues   Issue[]
+
+  @@map("devbox_templates")
+}
+
+model Run {
+  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  status          String   @default("pending")
+  blueprintId     String   @map("blueprint_id")
+  repo            String
+  baseSha         String?  @map("base_sha")
+  branch          String?
+  taskDescription String   @map("task_description")
+  createdBy       String?  @map("created_by")
+  devboxId        String?  @map("devbox_id") @db.Uuid
+  prUrl           String?  @map("pr_url")
+  config          Json     @default("{}")
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt       DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  steps      RunStep[]
+  patches    Patch[]
+  transcripts TranscriptEvent[]
+  artifacts  Artifact[]
+  issues     Issue[]
+
+  @@index([status])
+  @@index([createdBy])
+  @@map("runs")
+}
+
+model Devbox {
+  id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  templateId   String?   @map("template_id") @db.Uuid
+  status       String    @default("provisioning")
+  containerId  String?   @map("container_id")
+  host         String?
+  repoCheckout String?   @map("repo_checkout")
+  runId        String?   @map("run_id") @db.Uuid
+  lastSeenAt   DateTime? @map("last_seen_at") @db.Timestamptz
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz
+
+  template DevboxTemplate? @relation(fields: [templateId], references: [id])
+
+  @@map("devboxes")
+}
+
+model RunStep {
+  id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  runId        String    @map("run_id") @db.Uuid
+  nodeId       String    @map("node_id")
+  nodeType     String    @map("node_type")
+  agentBackend String?   @map("agent_backend")
+  agentRole    String?   @map("agent_role")
+  status       String    @default("pending")
+  iteration    Int       @default(0)
+  startedAt    DateTime? @map("started_at") @db.Timestamptz
+  endedAt      DateTime? @map("ended_at") @db.Timestamptz
+  durationMs   Int?      @map("duration_ms")
+  output       Json?
+  error        String?
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz
+
+  run     Run     @relation(fields: [runId], references: [id])
+  patches Patch[]
+
+  @@index([runId])
+  @@map("run_steps")
+}
+
+model Patch {
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  runId         String   @map("run_id") @db.Uuid
+  stepId        String?  @map("step_id") @db.Uuid
+  agentRole     String   @map("agent_role")
+  baseSha       String   @map("base_sha")
+  files         Json
+  intentSummary String?  @map("intent_summary")
+  confidence    String?  @default("medium")
+  risks         Json?    @default("[]")
+  patchPath     String   @map("patch_path")
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  run  Run      @relation(fields: [runId], references: [id])
+  step RunStep? @relation(fields: [stepId], references: [id])
+
+  @@index([runId])
+  @@map("patches")
+}
+
+model TranscriptEvent {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  runId        String   @map("run_id") @db.Uuid
+  stepId       String?  @map("step_id") @db.Uuid
+  eventType    String   @map("event_type")
+  agentBackend String?  @map("agent_backend")
+  content      Json
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  run Run @relation(fields: [runId], references: [id])
+
+  @@index([runId])
+  @@index([createdAt])
+  @@map("transcript_events")
+}
+
+model Artifact {
+  id       String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  runId    String   @map("run_id") @db.Uuid
+  stepId   String?  @map("step_id") @db.Uuid
+  kind     String
+  filePath String   @map("file_path")
+  metadata Json?    @default("{}")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  run Run @relation(fields: [runId], references: [id])
+
+  @@index([runId])
+  @@map("artifacts")
+}
+
+model Issue {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  identifier   String   @unique
+  title        String
+  body         String   @default("")
+  repo         String
+  branch       String   @default("main")
+  status       String   @default("open")
+  priority     Int      @default(2)
+  blueprintId  String   @default("simple") @map("blueprint_id")
+  templateId   String?  @map("template_id") @db.Uuid
+  assignee     String?
+  runId        String?  @map("run_id") @db.Uuid
+  labels       Json     @default("[]")
+  retryCount   Int      @default(0) @map("retry_count")
+  lastError    String?  @map("last_error")
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt    DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  // GitHub sync fields
+  githubIssueId    Int?      @map("github_issue_id")
+  githubIssueUrl   String?   @map("github_issue_url")
+  githubSyncedAt   DateTime? @map("github_synced_at") @db.Timestamptz
+  createdByUserId  String?   @map("created_by_user_id")
+
+  template DevboxTemplate? @relation(fields: [templateId], references: [id])
+  run      Run?            @relation(fields: [runId], references: [id])
+  createdByUser User?      @relation(fields: [createdByUserId], references: [id])
+
+  @@index([status])
+  @@index([priority])
+  @@index([githubIssueId, repo])
+  @@map("issues")
+}
+
+// ─── better-auth tables ────────────────────────────────────────────
+
+model User {
+  id            String    @id
+  name          String
+  email         String    @unique
+  emailVerified Boolean   @default(false) @map("email_verified")
+  image         String?
+  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt     DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  sessions Session[]
+  accounts Account[]
+  settings UserSettings?
+  issues   Issue[]
+
+  @@map("user")
+}
+
+model Session {
+  id        String   @id
+  userId    String   @map("user_id")
+  token     String   @unique
+  expiresAt DateTime @map("expires_at") @db.Timestamptz
+  ipAddress String?  @map("ip_address")
+  userAgent String?  @map("user_agent")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@map("session")
+}
+
+model Account {
+  id                   String    @id
+  userId               String    @map("user_id")
+  accountId            String    @map("account_id")
+  providerId           String    @map("provider_id")
+  accessToken          String?   @map("access_token")
+  refreshToken         String?   @map("refresh_token")
+  accessTokenExpiresAt DateTime? @map("access_token_expires_at") @db.Timestamptz
+  scope                String?
+  createdAt            DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt            DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@map("account")
+}
+
+model Verification {
+  id         String   @id
+  identifier String
+  value      String
+  expiresAt  DateTime @map("expires_at") @db.Timestamptz
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt  DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  @@map("verification")
+}
+
+// ─── Application tables ────────────────────────────────────────────
+
+model UserSettings {
+  id                   String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId               String  @unique @map("user_id")
+  selectedRepos        Json    @default("[]") @map("selected_repos")
+  claudeSubscription   Boolean @default(false) @map("claude_subscription")
+  openaiSubscription   Boolean @default(false) @map("openai_subscription")
+  onboardingCompleted  Boolean @default(false) @map("onboarding_completed")
+  defaultBlueprintId   String? @map("default_blueprint_id")
+  agentPreference      String? @map("agent_preference")
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@map("user_settings")
+}

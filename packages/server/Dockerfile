@@ -13,9 +13,11 @@ COPY packages/shared/package.json packages/shared/tsconfig.json packages/shared/
 COPY packages/shared/src packages/shared/src
 COPY packages/server/package.json packages/server/tsconfig.json packages/server/
 COPY packages/server/src packages/server/src
+COPY packages/server/prisma packages/server/prisma
 
-# Install dependencies and build
+# Install dependencies, generate Prisma client, and build
 RUN bun install && \
+    cd packages/server && bunx prisma generate && cd ../.. && \
     bun run --filter @patchwork/shared build && \
     bun run --filter @patchwork/server build
 
@@ -33,9 +35,10 @@ FROM oven/bun:1-slim
 
 WORKDIR /app
 
-# Copy built server output and schema
+# Copy built server output, schema, and prisma files
 COPY --from=builder /build/packages/server/dist ./dist
 COPY --from=builder /build/packages/server/src/db/schema.sql ./dist/db/schema.sql
+COPY --from=builder /build/packages/server/prisma ./prisma
 COPY --from=builder /build/packages/server/package.json ./
 
 # Copy production node_modules (installed without workspace deps)

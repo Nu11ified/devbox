@@ -44,8 +44,8 @@ describe("Devbox Templates CRUD", () => {
       expect(res.status).toBe(201);
       expect(res.body.id).toBeDefined();
       expect(res.body.name).toBe(validTemplate.name);
-      expect(res.body.base_image).toBe(validTemplate.baseImage);
-      expect(res.body.resource_limits).toEqual(validTemplate.resourceLimits);
+      expect(res.body.baseImage).toBe(validTemplate.baseImage);
+      expect(res.body.resourceLimits).toEqual(validTemplate.resourceLimits);
     });
 
     it("rejects when name is missing", async () => {
@@ -126,7 +126,7 @@ describe("Devbox Templates CRUD", () => {
 
       expect(res.status).toBe(200);
       expect(res.body.name).toBe("node-20-test-updated");
-      expect(res.body.base_image).toBe("patchwork/devbox-node:22");
+      expect(res.body.baseImage).toBe("patchwork/devbox-node:22");
     });
 
     it("returns 404 for non-existent ID", async () => {

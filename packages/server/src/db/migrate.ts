@@ -1,6 +1,6 @@
-import fs from "node:fs";
 import path from "node:path";
 import pg from "pg";
+import { execFileSync } from "node:child_process";
 
 const DEFAULT_DATABASE_URL =
   "postgresql://patchwork:patchwork@localhost:5432/patchwork";
@@ -9,21 +9,42 @@ export async function runMigration(
   databaseUrl?: string
 ): Promise<void> {
   const url = databaseUrl || process.env.DATABASE_URL || DEFAULT_DATABASE_URL;
-  const client = new pg.Client({ connectionString: url });
 
+  // 1. Ensure issue_seq exists (Prisma can't manage sequences)
+  const client = new pg.Client({ connectionString: url });
   try {
     await client.connect();
-
-    const schemaPath = path.join(
-      path.dirname(new URL(import.meta.url).pathname),
-      "schema.sql"
-    );
-    const sql = fs.readFileSync(schemaPath, "utf-8");
-
-    await client.query(sql);
-    console.log("Migration complete");
+    await client.query(`
+      DO $$ BEGIN
+        CREATE SEQUENCE IF NOT EXISTS issue_seq START 1;
+      EXCEPTION WHEN duplicate_table THEN
+        NULL;
+      END $$;
+    `);
+    console.log("Sequence check complete");
   } finally {
     await client.end();
+  }
+
+  // 2. Run Prisma migrations
+  const cwd = path.resolve(path.dirname(new URL(import.meta.url).pathname), "../../");
+  const env = { ...process.env, DATABASE_URL: url };
+  try {
+    execFileSync("bunx", ["prisma", "migrate", "deploy"], {
+      env,
+      stdio: "inherit",
+      cwd,
+    });
+    console.log("Prisma migration complete");
+  } catch {
+    // If no migrations exist yet (first deploy), run db push as fallback
+    console.log("No Prisma migrations found, using db push...");
+    execFileSync("bunx", ["prisma", "db", "push", "--accept-data-loss"], {
+      env,
+      stdio: "inherit",
+      cwd,
+    });
+    console.log("Prisma db push complete");
   }
 }
 

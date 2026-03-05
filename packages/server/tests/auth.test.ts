@@ -221,8 +221,7 @@ describe("Auth API routes", () => {
     const res = await request(app).get("/api/auth/status");
 
     expect(res.status).toBe(200);
-    expect(res.body.providers).toBeDefined();
-    expect(res.body.providers.claude).toBeDefined();
-    expect(res.body.providers.claude.valid).toBe(true);
+    expect(res.body.claude).toBeDefined();
+    expect(res.body.claude.connected).toBe(true);
   });
 });

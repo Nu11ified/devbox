@@ -1,0 +1,70 @@
+import { Router, type Router as RouterType } from "express";
+import prisma from "../db/prisma.js";
+
+export const settingsRouter: RouterType = Router();
+
+// GET /api/settings — current user's settings (auto-create if missing)
+settingsRouter.get("/", async (req, res) => {
+  const user = (req as any).user;
+  if (!user) {
+    res.status(401).json({ error: "Authentication required" });
+    return;
+  }
+
+  const settings = await prisma.userSettings.upsert({
+    where: { userId: user.id },
+    create: { userId: user.id },
+    update: {},
+  });
+
+  res.json(settings);
+});
+
+// PUT /api/settings — update settings
+settingsRouter.put("/", async (req, res) => {
+  const user = (req as any).user;
+  if (!user) {
+    res.status(401).json({ error: "Authentication required" });
+    return;
+  }
+
+  const {
+    selectedRepos,
+    claudeSubscription,
+    openaiSubscription,
+    onboardingCompleted,
+    defaultBlueprintId,
+    agentPreference,
+  } = req.body;
+
+  const data: Record<string, unknown> = {};
+  if (selectedRepos !== undefined) data.selectedRepos = selectedRepos;
+  if (claudeSubscription !== undefined) data.claudeSubscription = claudeSubscription;
+  if (openaiSubscription !== undefined) data.openaiSubscription = openaiSubscription;
+  if (onboardingCompleted !== undefined) data.onboardingCompleted = onboardingCompleted;
+  if (defaultBlueprintId !== undefined) data.defaultBlueprintId = defaultBlueprintId;
+  if (agentPreference !== undefined) data.agentPreference = agentPreference;
+
+  const settings = await prisma.userSettings.upsert({
+    where: { userId: user.id },
+    create: { userId: user.id, ...data },
+    update: data,
+  });
+
+  res.json(settings);
+});
+
+// GET /api/settings/onboarding — check if onboarding is complete
+settingsRouter.get("/onboarding", async (req, res) => {
+  const user = (req as any).user;
+  if (!user) {
+    res.status(401).json({ error: "Authentication required" });
+    return;
+  }
+
+  const settings = await prisma.userSettings.findUnique({
+    where: { userId: user.id },
+  });
+
+  res.json({ completed: settings?.onboardingCompleted ?? false });
+});

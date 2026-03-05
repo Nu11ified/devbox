@@ -43,6 +43,9 @@ export class ClaudeBackend implements AgentBackend {
     config: AgentConfig
   ): Promise<AgentSession> {
     const args = ["--dangerously-skip-permissions"];
+    if ((config as any).useSubscription) {
+      args.push("--subscription");
+    }
     const { sessionId } = await this.sidecar.ptyStart("claude", args);
 
     const wsUrl = this.sidecar.url.replace(/^http/, "ws");

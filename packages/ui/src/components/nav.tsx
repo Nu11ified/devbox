@@ -17,6 +17,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { signOut } from "@/lib/auth-client";
 
 const mainLinks = [
   { href: "/board", label: "Board", icon: LayoutGrid },
@@ -36,9 +37,14 @@ export function Nav() {
   const [open, setOpen] = useState(false);
 
   async function handleLogout() {
-    await fetch("/api/auth/logout", { method: "POST" });
-    router.push("/login");
-    router.refresh();
+    await signOut({
+      fetchOptions: {
+        onSuccess: () => {
+          router.push("/login");
+          router.refresh();
+        },
+      },
+    });
   }
 
   const allLinks = [...mainLinks, ...bottomLinks];

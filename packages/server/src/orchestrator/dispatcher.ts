@@ -6,6 +6,7 @@ import { SidecarHttpClient } from "../agents/sidecar-client.js";
 import { AgentRouter } from "../agents/router.js";
 import { PatchStore } from "../patchwork/store.js";
 import { getPool, findTemplateById, updateIssue } from "../db/queries.js";
+import prisma from "../db/prisma.js";
 import type { AgentBackend } from "@patchwork/shared";
 
 const devboxManager = new DevboxManager();
@@ -19,35 +20,42 @@ const patchStore = new PatchStore();
 export async function dispatchIssue(issue: {
   id: string;
   identifier: string;
-  blueprint_id: string;
-  template_id: string | null;
+  blueprintId: string;
+  templateId: string | null;
   repo: string;
   branch: string;
   title: string;
   body: string;
+  createdByUserId?: string | null;
 }): Promise<void> {
   const db = getPool();
 
+  // Resolve user subscription settings
+  const userSettings = issue.createdByUserId
+    ? await prisma.userSettings.findUnique({
+        where: { userId: issue.createdByUserId },
+      })
+    : null;
+
   // 1. Validate blueprint
-  const definition = BUILTIN_BLUEPRINTS.get(issue.blueprint_id);
+  const definition = BUILTIN_BLUEPRINTS.get(issue.blueprintId);
   if (!definition) {
     await updateIssue(issue.id, {
       status: "open",
-      lastError: `Unknown blueprint: ${issue.blueprint_id}`,
+      lastError: `Unknown blueprint: ${issue.blueprintId}`,
     });
     return;
   }
 
   // 2. Resolve template
   let template;
-  if (issue.template_id) {
-    template = await findTemplateById(issue.template_id);
+  if (issue.templateId) {
+    template = await findTemplateById(issue.templateId);
   }
   if (!template) {
-    const result = await db.query(
-      "SELECT * FROM devbox_templates ORDER BY created_at ASC LIMIT 1"
-    );
-    template = result.rows[0];
+    template = await prisma.devboxTemplate.findFirst({
+      orderBy: { createdAt: "asc" },
+    });
   }
   if (!template) {
     await updateIssue(issue.id, {
@@ -62,7 +70,7 @@ export async function dispatchIssue(issue: {
     `INSERT INTO runs (blueprint_id, repo, branch, task_description, status, config)
      VALUES ($1, $2, $3, $4, 'pending', '{}')
      RETURNING *`,
-    [issue.blueprint_id, issue.repo, issue.branch, `${issue.title}\n\n${issue.body}`]
+    [issue.blueprintId, issue.repo, issue.branch, `${issue.title}\n\n${issue.body}`]
   );
   const runId: string = runResult.rows[0].id;
 
@@ -78,15 +86,17 @@ export async function dispatchIssue(issue: {
       [runId]
     );
 
-    const resourceLimits = template.resource_limits || {};
-    const envVars = template.env_vars || {};
+    const resourceLimits = (template.resourceLimits ?? {}) as Record<string, any>;
+    const envVars = (template.envVars ?? {}) as Record<string, string>;
+    const baseImage = template.baseImage;
+    const networkPolicy = template.networkPolicy;
     const devboxInfo = await devboxManager.create({
-      image: template.base_image,
+      image: baseImage,
       name: `patchwork-${issue.identifier.toLowerCase()}`,
       env: typeof envVars === "object" ? envVars : {},
       cpus: resourceLimits.cpus,
       memoryMB: resourceLimits.memoryMB,
-      networkMode: template.network_policy === "egress-allowed" ? "bridge" : "none",
+      networkMode: networkPolicy === "egress-allowed" ? "bridge" : "none",
     });
     containerId = devboxInfo.containerId;
 
@@ -123,7 +133,7 @@ export async function dispatchIssue(issue: {
           repo: issue.repo,
           branch: issue.branch,
           templateId: template.id,
-          blueprintId: issue.blueprint_id,
+          blueprintId: issue.blueprintId,
         },
         role
       );
@@ -138,7 +148,10 @@ export async function dispatchIssue(issue: {
         repo: issue.repo,
         branch: issue.branch,
         templateId: template.id,
-        blueprintId: issue.blueprint_id,
+        blueprintId: issue.blueprintId,
+        config: {
+          useSubscription: userSettings?.claudeSubscription ?? false,
+        },
       },
       backendFactory,
       sidecar,

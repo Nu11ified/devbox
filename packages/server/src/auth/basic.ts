@@ -19,6 +19,11 @@ export function basicAuth(): RequestHandler {
   const password = clean(process.env.PATCHWORK_PASSWORD);
 
   return (req, res, next) => {
+    // Skip basic auth if session middleware already authenticated
+    if ((req as any).user) {
+      return next();
+    }
+
     if (!username || !password) {
       return next();
     }

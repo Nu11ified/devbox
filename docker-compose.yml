@@ -11,6 +11,15 @@ services:
     networks:
       - patchwork
 
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    volumes:
+      - redisdata:/data
+    networks:
+      - patchwork
+    command: redis-server --appendonly yes
+
   server:
     build:
       context: .
@@ -18,6 +27,7 @@ services:
     restart: unless-stopped
     depends_on:
       - postgres
+      - redis
     ports:
       - "${SERVER_PORT:-3001}:3001"
     volumes:
@@ -31,6 +41,7 @@ services:
       DATABASE_URL: postgresql://${POSTGRES_USER:-patchwork}:${POSTGRES_PASSWORD:-patchwork}@postgres:5432/${POSTGRES_DB:-patchwork}
       DBOS_SYSTEM_DATABASE_URL: postgresql://${POSTGRES_USER:-patchwork}:${POSTGRES_PASSWORD:-patchwork}@postgres:5432/${POSTGRES_DB:-patchwork}
       FILE_STORE_PATH: /data/patchwork
+      REDIS_URL: redis://redis:6379
     networks:
       - patchwork
 
@@ -41,12 +52,14 @@ services:
     restart: unless-stopped
     depends_on:
       - server
+      - postgres
     ports:
       - "${UI_PORT:-3000}:3000"
     env_file:
       - .env
     environment:
       API_SERVER_URL: ${API_SERVER_URL:-http://server:3001}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-patchwork}:${POSTGRES_PASSWORD:-patchwork}@postgres:5432/${POSTGRES_DB:-patchwork}
     networks:
       - patchwork
 
@@ -57,3 +70,4 @@ networks:
 volumes:
   pgdata:
   patchwork-data:
+  redisdata:

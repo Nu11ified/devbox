@@ -1,12 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
-
-const AUTH_COOKIE = "patchwork-auth";
+import { getSessionCookie } from "better-auth/cookies";
 
 export function middleware(req: NextRequest): NextResponse {
   const { pathname } = req.nextUrl;
 
-  // Allow login page and API routes through
-  if (pathname === "/login" || pathname.startsWith("/api/")) {
+  // Allow login page, onboarding, and API routes through
+  if (
+    pathname === "/login" ||
+    pathname === "/onboarding" ||
+    pathname.startsWith("/api/")
+  ) {
     return NextResponse.next();
   }
 
@@ -15,9 +18,9 @@ export function middleware(req: NextRequest): NextResponse {
     return NextResponse.next();
   }
 
-  // Check for auth cookie
-  const auth = req.cookies.get(AUTH_COOKIE);
-  if (!auth) {
+  // Check for better-auth session cookie
+  const sessionCookie = getSessionCookie(req);
+  if (!sessionCookie) {
     const loginUrl = new URL("/login", req.url);
     return NextResponse.redirect(loginUrl);
   }

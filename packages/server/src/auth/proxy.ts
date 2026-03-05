@@ -1,5 +1,6 @@
 import { encrypt, decrypt, type EncryptedData } from "./crypto.js";
 import type { SidecarClient } from "../agents/backend.js";
+import prisma from "../db/prisma.js";
 
 interface StoredToken {
   data: EncryptedData;
@@ -42,6 +43,20 @@ export class AuthProxy {
 
     const envKey = provider === "claude" ? "ANTHROPIC_API_KEY" : "OPENAI_API_KEY";
     const envContent = `${envKey}=${token}\n`;
+    await sidecar.writeFile("/workspace/.env.patchwork", envContent);
+  }
+
+  async injectGitHubToken(
+    userId: string,
+    sidecar: SidecarClient
+  ): Promise<void> {
+    const account = await prisma.account.findFirst({
+      where: { userId, providerId: "github" },
+    });
+    if (!account?.accessToken) {
+      throw new Error("No GitHub token found for user");
+    }
+    const envContent = `GITHUB_TOKEN=${account.accessToken}\n`;
     await sidecar.writeFile("/workspace/.env.patchwork", envContent);
   }
 

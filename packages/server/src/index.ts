@@ -10,12 +10,18 @@ import { authRouter } from "./api/auth.js";
 import { setupWebSocket } from "./api/ws.js";
 import { AuthProxy } from "./auth/proxy.js";
 import { basicAuth } from "./auth/basic.js";
+import { sessionAuth } from "./auth/session-middleware.js";
+import { githubRouter } from "./api/github.js";
+import { settingsRouter } from "./api/settings.js";
 import { Orchestrator } from "./orchestrator/index.js";
+import { GitHubSyncJob } from "./github/sync.js";
 import { runMigration } from "./db/migrate.js";
 
 export function createApp(): express.Express {
   const app = express();
 
+  // Try session auth first (better-auth), fall through to basic auth
+  app.use(sessionAuth());
   app.use(basicAuth());
   app.use(express.json());
 
@@ -34,6 +40,8 @@ export function createApp(): express.Express {
   app.use("/api/issues", issuesRouter);
   app.use("/api/blueprints", blueprintsRouter);
   app.use("/api/auth", authRouter(authProxy));
+  app.use("/api/github", githubRouter);
+  app.use("/api/settings", settingsRouter);
 
   return app;
 }
@@ -61,8 +69,12 @@ if (isMain) {
     const orchestrator = new Orchestrator();
     orchestrator.start();
 
+    const syncJob = new GitHubSyncJob();
+    syncJob.start();
+
     process.on("SIGTERM", () => {
       orchestrator.stop();
+      syncJob.stop();
       server.close();
     });
   })();

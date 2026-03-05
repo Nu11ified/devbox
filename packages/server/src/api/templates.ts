@@ -30,9 +30,9 @@ templatesRouter.post("/", async (req, res) => {
     const row = await insertTemplate(req.body);
     res.status(201).json(row);
   } catch (err: unknown) {
-    const pgErr = err as { code?: string };
-    if (pgErr.code === "23505") {
-      // unique_violation
+    const prismaErr = err as { code?: string };
+    // Prisma P2002 = unique constraint violation, pg 23505 = unique_violation
+    if (prismaErr.code === "P2002" || prismaErr.code === "23505") {
       res.status(409).json({ error: "Template with this name already exists" });
       return;
     }

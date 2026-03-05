@@ -106,6 +106,9 @@ export interface IssueItem {
   last_error: string | null;
   created_at: string;
   updated_at: string;
+  github_issue_id?: number;
+  github_issue_url?: string;
+  github_synced_at?: string;
 }
 
 export interface CreateIssueRequest {
@@ -288,6 +291,46 @@ class PatchworkAPI {
 
   async dispatchIssue(id: string): Promise<IssueItem> {
     return request<IssueItem>(`/api/issues/${id}/dispatch`, { method: "POST" });
+  }
+
+  // GitHub
+  async listGitHubRepos(): Promise<any[]> {
+    return request<any[]>("/api/github/repos");
+  }
+
+  async listGitHubIssues(owner: string, repo: string): Promise<any[]> {
+    return request<any[]>(`/api/github/repos/${owner}/${repo}/issues`);
+  }
+
+  async importGitHubIssues(
+    owner: string,
+    repo: string,
+    issueNumbers: number[]
+  ): Promise<{ imported: string[]; skipped: number[] }> {
+    return request("/api/github/import", {
+      method: "POST",
+      body: JSON.stringify({ owner, repo, issueNumbers }),
+    });
+  }
+
+  async syncGitHub(): Promise<{ synced: number }> {
+    return request("/api/github/sync", { method: "POST" });
+  }
+
+  // Settings
+  async getSettings(): Promise<any> {
+    return request("/api/settings");
+  }
+
+  async updateSettings(settings: Record<string, unknown>): Promise<any> {
+    return request("/api/settings", {
+      method: "PUT",
+      body: JSON.stringify(settings),
+    });
+  }
+
+  async getOnboardingStatus(): Promise<{ completed: boolean }> {
+    return request("/api/settings/onboarding");
   }
 
   // Auth

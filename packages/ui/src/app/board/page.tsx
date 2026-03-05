@@ -26,6 +26,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
+import { GitHubImportDialog } from "@/components/github-import-dialog";
 
 const columns: { label: string; status: string }[] = [
   { label: "Open", status: "open" },
@@ -98,13 +99,15 @@ export default function BoardPage() {
     <div className="p-4 md:p-6 space-y-4">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold">Board</h1>
-        <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-          <DialogTrigger asChild>
-            <Button size="sm">
-              <PlusCircle className="mr-2 h-4 w-4" />
-              New Issue
-            </Button>
-          </DialogTrigger>
+        <div className="flex gap-2">
+          <GitHubImportDialog onImported={refetch} />
+          <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+            <DialogTrigger asChild>
+              <Button size="sm">
+                <PlusCircle className="mr-2 h-4 w-4" />
+                New Issue
+              </Button>
+            </DialogTrigger>
           <DialogContent>
             <DialogHeader>
               <DialogTitle>Create Issue</DialogTitle>
@@ -181,6 +184,7 @@ export default function BoardPage() {
             </div>
           </DialogContent>
         </Dialog>
+        </div>
       </div>
 
       {loading && !issues && (

@@ -127,6 +127,9 @@ export interface Issue {
   lastError: string | null;
   createdAt: string;
   updatedAt: string;
+  githubIssueId?: number;
+  githubIssueUrl?: string;
+  githubSyncedAt?: string;
 }
 
 // Run types

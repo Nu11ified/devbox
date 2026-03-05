@@ -11,10 +11,12 @@ COPY package.json bun.lock tsconfig.base.json ./
 # Copy packages needed for UI build
 COPY packages/shared/package.json packages/shared/tsconfig.json packages/shared/
 COPY packages/shared/src packages/shared/src
+COPY packages/server/prisma packages/server/prisma
 COPY packages/ui/ packages/ui/
 
-# Install dependencies and build
+# Install dependencies, generate Prisma client, and build
 RUN bun install && \
+    cd packages/ui && bunx prisma generate --schema=../server/prisma/schema.prisma && cd ../.. && \
     bun run --filter @patchwork/shared build && \
     bun run --filter @patchwork/ui build
 
