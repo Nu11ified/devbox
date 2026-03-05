@@ -6,17 +6,32 @@ const AUTH_COOKIE = "patchwork-auth";
 
 // POST /api/auth/login — verify credentials and set cookie
 async function handleLogin(req: NextRequest): Promise<NextResponse> {
-  const { username, password } = await req.json();
+  let body: { username?: string; password?: string };
+  try {
+    body = await req.json();
+  } catch {
+    return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
+  }
+
+  const { username, password } = body;
   if (!username || !password) {
     return NextResponse.json({ error: "username and password required" }, { status: 400 });
   }
 
   const credentials = Buffer.from(`${username}:${password}`).toString("base64");
 
-  // Verify credentials against a protected endpoint
-  const check = await fetch(`${SERVER_URL}/api/templates`, {
-    headers: { Authorization: `Basic ${credentials}` },
-  });
+  let check: Response;
+  try {
+    check = await fetch(`${SERVER_URL}/api/templates`, {
+      headers: { Authorization: `Basic ${credentials}` },
+    });
+  } catch (err) {
+    console.error(`[login] Failed to reach backend at ${SERVER_URL}:`, err);
+    return NextResponse.json(
+      { error: `Cannot reach backend server at ${SERVER_URL}` },
+      { status: 502 },
+    );
+  }
 
   if (!check.ok) {
     return NextResponse.json({ error: "Invalid credentials" }, { status: 401 });
@@ -64,9 +79,18 @@ async function proxy(req: NextRequest, path: string): Promise<NextResponse> {
     if (body) init.body = body;
   }
 
-  const upstream = await fetch(url, init);
+  let upstream: Response;
+  try {
+    upstream = await fetch(url, init);
+  } catch (err) {
+    console.error(`[proxy] Failed to reach backend at ${url}:`, err);
+    return NextResponse.json(
+      { error: `Cannot reach backend server` },
+      { status: 502 },
+    );
+  }
 
-  // Stream the response back
+  // Forward the response back
   const resHeaders = new Headers();
   upstream.headers.forEach((value, key) => {
     if (key.toLowerCase() !== "transfer-encoding") {
