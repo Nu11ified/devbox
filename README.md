@@ -1,6 +1,6 @@
 # Patchwork
 
-Patchwork is a self-hosted platform that runs AI coding agents inside isolated Docker containers. You give it a task description, a repository, and a branch. It spins up one or more agents (Claude or Codex), has them write code inside ephemeral containers, collects the resulting patches, and can push the branch. Workflows are defined as directed graphs called blueprints, which chain together agent steps, linting, testing, review, and CI polling.
+Patchwork is a self-hosted platform that runs AI coding agents inside isolated Docker containers. You give it a task description, a repository, and a branch. It spins up one or more agents (Claude or Codex), has them write code inside ephemeral containers, collects the resulting patches, and can push the branch. Workflows are defined as directed graphs called blueprints, which chain together agent steps, linting, testing, review, and CI polling. An orchestrator polls an issue board, dispatches work to available slots, and handles retries automatically.
 
 ## Requirements
 
@@ -35,6 +35,9 @@ cp .env.example .env
 | `POSTGRES_DB` | PostgreSQL database name. | `patchwork` |
 | `SERVER_PORT` | Host port for the API server. | `3001` |
 | `UI_PORT` | Host port for the web UI. | `3000` |
+| `PATCHWORK_POLL_INTERVAL_MS` | How often the orchestrator checks for queued issues (ms). | `5000` |
+| `PATCHWORK_MAX_CONCURRENT` | Maximum number of issues dispatched at once. | `5` |
+| `PATCHWORK_STALL_TIMEOUT_MS` | Time with no transcript activity before a run is considered stalled (ms). Set to `0` to disable. | `600000` |
 
 Agent API keys (for Claude and Codex) are configured through the Settings page in the web UI. They are encrypted at rest using the encryption key above.
 
@@ -72,15 +75,19 @@ The server runs on port 3001, the UI on port 3000.
 - `writer-reviewer` -- One agent writes, another reviews, with a fix loop.
 - `spec-implement-review` -- Spec writing, implementation from spec, review against spec.
 
+**Issue** -- A task on the issue board. Issues have a status (`open`, `queued`, `in_progress`, `review`, `done`, `cancelled`), a priority (0=urgent through 3=low), a target repo/branch, and a blueprint. Setting an issue to `queued` makes it eligible for automatic dispatch by the orchestrator.
+
+**Orchestrator** -- A poll loop that runs inside the server process. Every 5 seconds (configurable) it checks for queued issues, dispatches them to available slots (up to `PATCHWORK_MAX_CONCURRENT`), detects stalled runs, and retries failures with exponential backoff (10s, 20s, 40s, capped at 5 minutes, max 3 attempts). On startup it resets any issues left in `in_progress` from a previous crash.
+
 **Run** -- A single execution of a blueprint against a repository and branch. Tracks status (`pending`, `provisioning`, `running`, `waiting_ci`, `completed`, `failed`, `cancelled`), transcript events, and patch artifacts.
 
 ## Project structure
 
-The repo is a Bun monorepo with three packages:
+The repo is a Bun monorepo with four packages:
 
-- `packages/server` -- Express API server. Manages devboxes via the Docker socket, runs blueprints, stores runs and patches in PostgreSQL.
+- `packages/server` -- Express API server. Manages devboxes via the Docker socket, runs blueprints, stores runs and patches in PostgreSQL. Includes the orchestrator and issue board API.
 - `packages/sidecar` -- Lightweight HTTP server that runs inside each devbox container. Exposes exec, git, filesystem, and PTY endpoints.
-- `packages/ui` -- Next.js web interface. Lists runs, shows live transcripts and diffs, visualizes blueprint DAGs, manages templates and settings.
+- `packages/ui` -- Next.js web interface. Lists runs, shows live transcripts and diffs, visualizes blueprint DAGs, manages templates and settings. Includes a kanban board for issues.
 - `packages/shared` -- TypeScript type definitions shared across packages.
 
 ## Running tests
