@@ -49,6 +49,37 @@ export function setupThreadWebSocket(
       return;
     }
 
+    // Authenticate via session cookie
+    const cookieHeader = req.headers.cookie ?? "";
+    const cookies = Object.fromEntries(
+      cookieHeader.split(";").map((c) => {
+        const [key, ...rest] = c.trim().split("=");
+        return [key, rest.join("=")];
+      })
+    );
+    const sessionToken = cookies["better-auth.session_token"] ?? cookies["__Secure-better-auth.session_token"];
+
+    if (!sessionToken) {
+      ws.close(4001, "Authentication required");
+      return;
+    }
+
+    const session = await prisma.session.findUnique({
+      where: { token: sessionToken },
+      include: { user: true },
+    });
+
+    if (!session || session.expiresAt < new Date()) {
+      ws.close(4001, "Session expired");
+      return;
+    }
+
+    // Verify ownership
+    if (thread.userId && thread.userId !== session.user.id) {
+      ws.close(4003, "Not authorized");
+      return;
+    }
+
     const conn: ThreadConnection = { ws, threadId };
     if (!connections.has(threadId)) {
       connections.set(threadId, new Set());
@@ -156,7 +187,11 @@ function startEventFanOut(
   const stream = providerService.mergedEventStream();
 
   const program = Stream.runForEach(stream, (envelope: ProviderEventEnvelope) =>
-    Effect.sync(() => {
+    Effect.gen(function* () {
+      // Persist event to database
+      yield* providerService.persistEvent(envelope);
+
+      // Fan out to WebSocket clients
       const threadConns = connections.get(envelope.threadId as string);
       if (!threadConns) return;
 
@@ -173,5 +208,13 @@ function startEventFanOut(
     })
   );
 
-  Effect.runFork(program.pipe(Effect.catchAll(() => Effect.void)));
+  Effect.runFork(
+    program.pipe(
+      Effect.catchAll((error) =>
+        Effect.sync(() => {
+          console.error("[thread-ws] Event fan-out stream error:", error);
+        })
+      )
+    )
+  );
 }

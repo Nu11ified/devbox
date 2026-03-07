@@ -19,7 +19,15 @@ import {
 import type { ProviderKind, AdapterError } from "./types.js";
 
 export class ProviderService {
+  private sequenceCounters = new Map<string, number>();
+
   constructor(private registry: ProviderAdapterRegistry) {}
+
+  private nextSequence(threadId: string): number {
+    const current = this.sequenceCounters.get(threadId) ?? 0;
+    this.sequenceCounters.set(threadId, current + 1);
+    return current;
+  }
 
   createThread(input: {
     title: string;
@@ -237,7 +245,7 @@ export class ProviderService {
             turnId: envelope.turnId as string | undefined,
             type: envelope.type,
             payload: envelope.payload as any,
-            sequence: 0,
+            sequence: this.nextSequence(envelope.threadId as string),
             createdAt: envelope.createdAt,
           },
         }),
@@ -248,17 +256,12 @@ export class ProviderService {
 
   mergedEventStream(): Stream.Stream<ProviderEventEnvelope, AdapterError> {
     const providers = this.registry.list();
-    if (providers.length === 0) return Stream.empty;
-
-    const streams = providers.map((p) => {
-      const adapter = this.registry.capabilities(p)
-        ? Effect.runSync(this.registry.get(p))
-        : null;
-      return adapter?.streamEvents;
-    }).filter((s): s is Stream.Stream<ProviderEventEnvelope, AdapterError> => s != null);
+    const streams = providers
+      .map((p) => this.registry.getSync(p)?.streamEvents)
+      .filter((s): s is Stream.Stream<ProviderEventEnvelope, AdapterError> => s != null);
 
     if (streams.length === 0) return Stream.empty;
     if (streams.length === 1) return streams[0];
-    return Stream.merge(streams[0], streams[1]);
+    return streams.reduce((acc, s) => Stream.merge(acc, s));
   }
 }

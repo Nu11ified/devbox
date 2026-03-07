@@ -42,7 +42,11 @@ export class ClaudeCodeAdapter implements ProviderAdapterShape {
   };
 
   private sessions = new Map<string, SessionState>();
-  private eventQueue: Queue.Queue<ProviderEventEnvelope> | null = null;
+  private eventQueue: Queue.Queue<ProviderEventEnvelope>;
+
+  constructor() {
+    this.eventQueue = Effect.runSync(Queue.unbounded<ProviderEventEnvelope>());
+  }
 
   private sdkModule: any = null;
 
@@ -83,21 +87,11 @@ export class ClaudeCodeAdapter implements ProviderAdapterShape {
   }
 
   private async enqueue(envelope: ProviderEventEnvelope): Promise<void> {
-    if (this.eventQueue) {
-      await Effect.runPromise(Queue.offer(this.eventQueue, envelope));
-    }
+    await Effect.runPromise(Queue.offer(this.eventQueue, envelope));
   }
 
   get streamEvents(): Stream.Stream<ProviderEventEnvelope, AdapterError> {
-    const self = this;
-    return Stream.unwrap(
-      Effect.gen(function* () {
-        if (!self.eventQueue) {
-          self.eventQueue = yield* Queue.unbounded<ProviderEventEnvelope>();
-        }
-        return Stream.fromQueue(self.eventQueue);
-      })
-    );
+    return Stream.fromQueue(this.eventQueue);
   }
 
   startSession(input: SessionStartInput): Effect.Effect<ProviderSession, AdapterError> {

@@ -12,8 +12,11 @@ export function threadsRouter(providerService: ProviderService): Router {
   router.get("/", async (req, res) => {
     try {
       const userId = (req as any).user?.id;
+      if (!userId) {
+        return res.json([]);
+      }
       const threads = await prisma.thread.findMany({
-        where: userId ? { userId } : {},
+        where: { userId },
         orderBy: { updatedAt: "desc" },
         include: {
           _count: { select: { turns: true, events: true } },
@@ -158,7 +161,10 @@ export function threadsRouter(providerService: ProviderService): Router {
   // Delete thread
   router.delete("/:id", async (req, res) => {
     try {
-      await prisma.thread.delete({ where: { id: req.params.id } });
+      const userId = (req as any).user?.id;
+      const where: any = { id: req.params.id };
+      if (userId) where.userId = userId;
+      await prisma.thread.delete({ where });
       res.json({ ok: true });
     } catch (err: any) {
       res.status(500).json({ error: err.message });

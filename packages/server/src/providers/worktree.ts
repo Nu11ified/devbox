@@ -1,9 +1,9 @@
-import { exec } from "node:child_process";
+import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 
-const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
 
 const WORKTREE_BASE = process.env.PATCHWORK_WORKTREE_DIR ?? "/tmp/patchwork/worktrees";
 
@@ -28,10 +28,7 @@ export class WorktreeManager {
       mkdirSync(WORKTREE_BASE, { recursive: true });
     }
 
-    await execAsync(
-      `git worktree add "${worktreePath}" -b "${safeBranch}"`,
-      { cwd: this.repoPath }
-    );
+    await execFileAsync("git", ["worktree", "add", worktreePath, "-b", safeBranch], { cwd: this.repoPath });
 
     return { path: worktreePath, branch: safeBranch, threadId };
   }
@@ -39,21 +36,18 @@ export class WorktreeManager {
   async remove(threadId: string): Promise<void> {
     const worktreePath = join(WORKTREE_BASE, threadId);
     if (existsSync(worktreePath)) {
-      await execAsync(
-        `git worktree remove "${worktreePath}" --force`,
-        { cwd: this.repoPath }
-      );
+      await execFileAsync("git", ["worktree", "remove", worktreePath, "--force"], { cwd: this.repoPath });
     }
   }
 
   async getDiff(threadId: string): Promise<string> {
     const worktreePath = join(WORKTREE_BASE, threadId);
-    const { stdout } = await execAsync("git diff HEAD", { cwd: worktreePath });
+    const { stdout } = await execFileAsync("git", ["diff", "HEAD"], { cwd: worktreePath });
     return stdout;
   }
 
   async list(): Promise<WorktreeInfo[]> {
-    const { stdout } = await execAsync("git worktree list --porcelain", {
+    const { stdout } = await execFileAsync("git", ["worktree", "list", "--porcelain"], {
       cwd: this.repoPath,
     });
 

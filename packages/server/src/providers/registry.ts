@@ -30,6 +30,10 @@ export class ProviderAdapterRegistry {
     return Array.from(this.adapters.keys());
   }
 
+  getSync(provider: ProviderKind): ProviderAdapterShape | undefined {
+    return this.adapters.get(provider);
+  }
+
   capabilities(provider: ProviderKind) {
     return this.adapters.get(provider)?.capabilities;
   }
