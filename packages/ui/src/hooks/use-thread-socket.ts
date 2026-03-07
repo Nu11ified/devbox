@@ -26,7 +26,7 @@ export function useThreadSocket({ threadId, onEvent }: UseThreadSocketOptions) {
     if (!threadId) return;
 
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-    const wsUrl = `${protocol}//${window.location.host}/api/ws/threads?threadId=${threadId}`;
+    const wsUrl = `${protocol}//${window.location.host}/api/ws/threads?threadId=${encodeURIComponent(threadId)}`;
     const ws = new WebSocket(wsUrl);
     wsRef.current = ws;
 

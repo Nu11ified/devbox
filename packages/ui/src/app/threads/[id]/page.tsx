@@ -38,10 +38,22 @@ export default function ThreadDetailPage() {
   }, [id]);
 
   const handleEvent = useCallback((event: ThreadEvent) => {
+    if (event.type === "thread.turn.started") {
+      assistantTextRef.current = "";
+      assistantItemIdRef.current = null;
+    }
+
     if (event.type === "thread.event" && event.event) {
       const e = event.event;
 
       switch (e.type) {
+        case "turn.started": {
+          // New turn starting — reset streaming state
+          assistantTextRef.current = "";
+          assistantItemIdRef.current = null;
+          break;
+        }
+
         case "content.delta": {
           if (e.payload.kind === "text") {
             assistantTextRef.current += e.payload.delta;
@@ -165,11 +177,9 @@ export default function ThreadDetailPage() {
     (text: string, model?: string) => {
       setItems((prev) => [
         ...prev,
-        { id: `user-${Date.now()}`, kind: "user_message", content: text },
+        { id: `user-${Date.now()}`, kind: "user_message" as const, content: text },
       ]);
       setRunning(true);
-      assistantTextRef.current = "";
-      assistantItemIdRef.current = null;
       sendTurn(text, model);
     },
     [sendTurn]

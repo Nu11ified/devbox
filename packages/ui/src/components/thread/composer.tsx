@@ -37,12 +37,13 @@ export function Composer({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const handleSend = useCallback(() => {
+    if (running) return;
     const trimmed = text.trim();
     if (!trimmed) return;
     onSend(trimmed, selectedModel || undefined);
     setText("");
     textareaRef.current?.focus();
-  }, [text, selectedModel, onSend]);
+  }, [text, selectedModel, onSend, running]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
