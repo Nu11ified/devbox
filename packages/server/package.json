@@ -11,12 +11,14 @@
     "db:migrate": "tsx src/db/migrate.ts"
   },
   "dependencies": {
-    "@patchwork/shared": "workspace:*",
     "@dbos-inc/dbos-sdk": "^4.9.11",
+    "@effect/schema": "^0.75.5",
     "@octokit/rest": "^21.1.1",
+    "@patchwork/shared": "workspace:*",
     "@prisma/client": "^6.6.0",
     "better-auth": "^1.2.8",
     "dockerode": "^4.0.0",
+    "effect": "^3.19.19",
     "express": "^5.0.1",
     "pg": "^8.13.0",
     "redis": "^4.7.0",
