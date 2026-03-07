@@ -17,7 +17,7 @@ import { settingsRouter } from "./api/settings.js";
 import { Orchestrator } from "./orchestrator/index.js";
 import { GitHubSyncJob } from "./github/sync.js";
 import { runMigration } from "./db/migrate.js";
-import { ProviderAdapterRegistry, ProviderService, ClaudeCodeAdapter } from "./providers/index.js";
+import { ProviderAdapterRegistry, ProviderService, ClaudeCodeAdapter, CodexAdapter } from "./providers/index.js";
 import { threadsRouter } from "./api/threads.js";
 
 export function createApp(): { app: express.Express; providerService: ProviderService } {
@@ -36,6 +36,7 @@ export function createApp(): { app: express.Express; providerService: ProviderSe
   // Provider adapter system
   const adapterRegistry = new ProviderAdapterRegistry();
   adapterRegistry.register(new ClaudeCodeAdapter());
+  adapterRegistry.register(new CodexAdapter());
   const providerService = new ProviderService(adapterRegistry);
 
   app.get("/api/health", (_req, res) => {

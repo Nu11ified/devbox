@@ -159,3 +159,22 @@ export interface RunResult {
   status: RunStatus;
   sha?: string;
 }
+
+// Thread types (provider adapter layer)
+
+export type ProviderKind = "claudeCode" | "codex";
+export type RuntimeMode = "approval-required" | "full-access";
+export type ThreadStatus = "idle" | "starting" | "active" | "error";
+
+export interface ThreadSummary {
+  id: string;
+  title: string;
+  provider: ProviderKind;
+  model: string | null;
+  status: ThreadStatus;
+  runtimeMode: RuntimeMode;
+  issueId: string | null;
+  createdAt: string;
+  updatedAt: string;
+  turnCount: number;
+}

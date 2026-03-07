@@ -1,7 +1,8 @@
 "use client";
 
-import { use } from "react";
+import { use, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   ArrowLeft,
   ExternalLink,
@@ -14,6 +15,7 @@ import {
   Play,
   AlertTriangle,
   RefreshCw,
+  MessageSquare,
 } from "lucide-react";
 import { api } from "@/lib/api";
 import { useApi } from "@/hooks/use-api";
@@ -48,6 +50,8 @@ const priorityColors: Record<number, string> = {
 
 export default function IssueDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
+  const router = useRouter();
+  const [sessionError, setSessionError] = useState<string | null>(null);
   const { data: issue, loading, error, refetch } = useApi(
     () => api.getIssue(id),
     [id]
@@ -61,6 +65,21 @@ export default function IssueDetailPage({ params }: { params: Promise<{ id: stri
   async function dispatch() {
     await api.dispatchIssue(id);
     refetch();
+  }
+
+  async function handleStartSession() {
+    setSessionError(null);
+    try {
+      const thread = await api.createThread({
+        title: issue!.title,
+        provider: "claudeCode",
+        workspacePath: issue!.repo,
+        issueId: issue!.id,
+      });
+      router.push(`/threads/${thread.id}`);
+    } catch (err: any) {
+      setSessionError(err?.message ?? "Failed to start session");
+    }
   }
 
   if (loading && !issue) {
@@ -233,12 +252,21 @@ export default function IssueDetailPage({ params }: { params: Promise<{ id: stri
               </Button>
             )}
             {issue.status !== "done" && issue.status !== "cancelled" && (
-              <Button size="sm" variant="ghost" className="text-destructive" onClick={() => transition("cancelled")}>
-                <XCircle className="mr-1.5 h-3.5 w-3.5" />
-                Cancel
-              </Button>
+              <>
+                <Button size="sm" variant="outline" onClick={handleStartSession}>
+                  <MessageSquare className="h-3.5 w-3.5 mr-1.5" />
+                  Start Session
+                </Button>
+                <Button size="sm" variant="ghost" className="text-destructive" onClick={() => transition("cancelled")}>
+                  <XCircle className="mr-1.5 h-3.5 w-3.5" />
+                  Cancel
+                </Button>
+              </>
             )}
           </div>
+          {sessionError && (
+            <p className="text-sm text-destructive mt-2">{sessionError}</p>
+          )}
         </div>
 
         {/* Sidebar */}
