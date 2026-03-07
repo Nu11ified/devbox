@@ -62,10 +62,20 @@ export default function OnboardingPage() {
   }, []);
 
   function toggleRepo(fullName: string) {
-    const next = new Set(selectedRepos);
-    if (next.has(fullName)) next.delete(fullName);
-    else next.add(fullName);
-    setSelectedRepos(next);
+    setSelectedRepos((prev) => {
+      const next = new Set(prev);
+      if (next.has(fullName)) next.delete(fullName);
+      else next.add(fullName);
+      return next;
+    });
+  }
+
+  function toggleAll() {
+    if (selectedRepos.size === repos.length) {
+      setSelectedRepos(new Set());
+    } else {
+      setSelectedRepos(new Set(repos.map((r) => r.full_name)));
+    }
   }
 
   async function handleSubmit() {
@@ -122,9 +132,20 @@ export default function OnboardingPage() {
             <Label className="text-[11px] font-mono uppercase tracking-wider text-muted-foreground/70">
               Repositories to monitor
             </Label>
-            <p className="text-xs text-muted-foreground/60">
-              Issues labeled <code className="text-[10px] px-1 py-0.5 bg-muted rounded font-mono">patchwork</code> in these repos will auto-sync to your board.
-            </p>
+            <div className="flex items-center justify-between">
+              <p className="text-xs text-muted-foreground/60">
+                Issues labeled <code className="text-[10px] px-1 py-0.5 bg-muted rounded font-mono">patchwork</code> in these repos will auto-sync to your board.
+              </p>
+              {repos.length > 0 && (
+                <button
+                  type="button"
+                  onClick={toggleAll}
+                  className="text-[11px] font-mono text-primary hover:text-primary/80 transition-colors shrink-0 ml-2"
+                >
+                  {selectedRepos.size === repos.length ? "Deselect all" : "Select all"}
+                </button>
+              )}
+            </div>
             <div className="border rounded-md max-h-64 overflow-y-auto">
               {loading ? (
                 <div className="flex items-center justify-center py-8">
@@ -136,10 +157,14 @@ export default function OnboardingPage() {
                 </p>
               ) : (
                 repos.map((repo) => (
-                  <label
+                  <div
                     key={repo.full_name}
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => toggleRepo(repo.full_name)}
+                    onKeyDown={(e) => { if (e.key === " " || e.key === "Enter") { e.preventDefault(); toggleRepo(repo.full_name); } }}
                     className={cn(
-                      "flex items-start gap-3 px-3 py-2.5 border-b last:border-b-0 cursor-pointer transition-colors",
+                      "flex items-start gap-3 px-3 py-2.5 border-b last:border-b-0 cursor-pointer transition-colors select-none",
                       selectedRepos.has(repo.full_name) ? "bg-primary/5" : "hover:bg-muted/30"
                     )}
                   >
@@ -148,12 +173,6 @@ export default function OnboardingPage() {
                         <Check className="h-3 w-3 text-primary" />
                       )}
                     </div>
-                    <input
-                      type="checkbox"
-                      checked={selectedRepos.has(repo.full_name)}
-                      onChange={() => toggleRepo(repo.full_name)}
-                      className="sr-only"
-                    />
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-1.5">
                         {repo.private ? (
@@ -185,7 +204,7 @@ export default function OnboardingPage() {
                         )}
                       </div>
                     </div>
-                  </label>
+                  </div>
                 ))
               )}
             </div>
