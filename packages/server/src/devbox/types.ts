@@ -5,6 +5,7 @@ export interface DevboxCreateOptions {
   cpus?: number;
   memoryMB?: number;
   networkMode?: string;
+  binds?: string[];
 }
 
 export interface DevboxInfo {

@@ -20,7 +20,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Loader2 } from "lucide-react";
+import { Loader2, GitBranch } from "lucide-react";
 
 export default function NewThreadPage() {
   const router = useRouter();
@@ -28,6 +28,9 @@ export default function NewThreadPage() {
   const [provider, setProvider] = useState("claudeCode");
   const [model, setModel] = useState("");
   const [runtimeMode, setRuntimeMode] = useState("approval-required");
+  const [repo, setRepo] = useState("");
+  const [branch, setBranch] = useState("main");
+  const [repos, setRepos] = useState<any[]>([]);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState("");
   const [loadingDefaults, setLoadingDefaults] = useState(true);
@@ -41,6 +44,10 @@ export default function NewThreadPage() {
       })
       .catch(() => {})
       .finally(() => setLoadingDefaults(false));
+
+    api.listGitHubRepos()
+      .then((r: any[]) => setRepos(r))
+      .catch(() => {});
   }, []);
 
   async function handleSubmit(e: React.FormEvent) {
@@ -56,6 +63,8 @@ export default function NewThreadPage() {
         model: model || undefined,
         runtimeMode,
         workspacePath: "/workspace",
+        repo: repo || undefined,
+        branch: repo ? branch : undefined,
       });
       router.push(`/threads/${result.id}`);
     } catch (err: any) {
@@ -97,6 +106,42 @@ export default function NewThreadPage() {
                 autoFocus
               />
             </div>
+
+            <div className="space-y-2">
+              <Label className="text-[11px] font-mono uppercase tracking-wider text-muted-foreground/70">
+                Repository
+              </Label>
+              <Select value={repo} onValueChange={setRepo}>
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="No repo (local workspace)" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="">None (local workspace)</SelectItem>
+                  {repos.map((r: any) => (
+                    <SelectItem key={r.full_name} value={r.full_name}>
+                      {r.full_name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-[10px] text-muted-foreground/50">
+                Select a GitHub repo to clone into a devbox.
+              </p>
+            </div>
+
+            {repo && (
+              <div className="space-y-2">
+                <Label htmlFor="branch" className="text-[11px] font-mono uppercase tracking-wider text-muted-foreground/70">
+                  Branch
+                </Label>
+                <Input
+                  id="branch"
+                  value={branch}
+                  onChange={(e) => setBranch(e.target.value)}
+                  placeholder="main"
+                />
+              </div>
+            )}
 
             <div className="space-y-2">
               <Label className="text-[11px] font-mono uppercase tracking-wider text-muted-foreground/70">

@@ -27,6 +27,7 @@ export class DevboxManager {
           : undefined,
         NanoCpus: options.cpus ? options.cpus * 1e9 : undefined,
         NetworkMode: options.networkMode || "bridge",
+        Binds: options.binds,
       },
     });
 

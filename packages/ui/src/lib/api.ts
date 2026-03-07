@@ -374,14 +374,22 @@ class PatchworkAPI {
     return request<any>(`/api/threads/${id}`);
   }
 
+  async createPR(threadId: string): Promise<{ prUrl: string; prNumber: number }> {
+    return request<{ prUrl: string; prNumber: number }>(`/api/threads/${threadId}/pr`, {
+      method: "POST",
+    });
+  }
+
   async createThread(data: {
     title: string;
     provider: string;
     model?: string;
     runtimeMode?: string;
-    workspacePath: string;
+    workspacePath?: string;
     useSubscription?: boolean;
     issueId?: string;
+    repo?: string;
+    branch?: string;
   }): Promise<any> {
     return request<any>("/api/threads", {
       method: "POST",

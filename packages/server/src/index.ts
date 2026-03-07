@@ -79,7 +79,7 @@ if (isMain) {
       console.log(`Patchwork server listening on port ${PORT}`);
     });
 
-    const orchestrator = new Orchestrator();
+    const orchestrator = new Orchestrator(providerService);
     orchestrator.start();
 
     const syncJob = new GitHubSyncJob();

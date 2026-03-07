@@ -1,5 +1,6 @@
 import { getPool, findDispatchableIssues, updateIssue } from "../db/queries.js";
 import { dispatchIssue } from "./dispatcher.js";
+import type { ProviderService } from "../providers/service.js";
 
 const POLL_INTERVAL_MS = parseInt(
   process.env.PATCHWORK_POLL_INTERVAL_MS || "5000",
@@ -41,6 +42,11 @@ export class Orchestrator {
   private retryQueue = new Map<string, RetryEntry>();
   private tickTimer: NodeJS.Timeout | null = null;
   private started = false;
+  private providerService?: ProviderService;
+
+  constructor(providerService?: ProviderService) {
+    this.providerService = providerService;
+  }
 
   start(): void {
     if (this.started) return;
@@ -189,7 +195,7 @@ export class Orchestrator {
       this.claimed.add(issue.id);
       console.log(`[orchestrator] dispatching ${issue.identifier} (${issue.title})`);
 
-      const promise = dispatchIssue(issue).catch((err) => {
+      const promise = dispatchIssue(issue, this.providerService).catch((err) => {
         console.error(`[orchestrator] dispatch failed for ${issue.identifier}:`, err);
         this.scheduleRetry(issue.id, err instanceof Error ? err.message : String(err));
       });

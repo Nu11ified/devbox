@@ -1,9 +1,16 @@
 import { Router } from "express";
 import { Effect } from "effect";
+import { execFileSync } from "node:child_process";
+import { existsSync, mkdirSync, rmSync } from "node:fs";
 import prisma from "../db/prisma.js";
 import type { ProviderService } from "../providers/service.js";
 import { ThreadId } from "../providers/types.js";
 import type { ProviderKind } from "../providers/types.js";
+import { DevboxManager } from "../devbox/manager.js";
+import { Octokit } from "@octokit/rest";
+
+const THREADS_DIR = "/data/patchwork/threads";
+const devboxManager = new DevboxManager();
 
 export function threadsRouter(providerService: ProviderService): Router {
   const router = Router();
@@ -51,10 +58,10 @@ export function threadsRouter(providerService: ProviderService): Router {
   router.post("/", async (req, res) => {
     try {
       const userId = (req as any).user?.id;
-      const { title, provider, model, runtimeMode, workspacePath, useSubscription, issueId } = req.body;
+      const { title, provider, model, runtimeMode, workspacePath, useSubscription, issueId, repo, branch } = req.body;
 
-      if (!title || !provider || !workspacePath) {
-        return res.status(400).json({ error: "title, provider, and workspacePath are required" });
+      if (!title || !provider) {
+        return res.status(400).json({ error: "title and provider are required" });
       }
 
       let subscription = useSubscription ?? false;
@@ -74,18 +81,56 @@ export function threadsRouter(providerService: ProviderService): Router {
         githubToken = account?.accessToken ?? undefined;
       }
 
+      let resolvedWorkspacePath = workspacePath || "/workspace";
+      let devboxId: string | undefined;
+
+      // If repo is provided, clone it and spawn a devbox
+      if (repo) {
+        const threadTempId = crypto.randomUUID();
+        const threadDir = `${THREADS_DIR}/${threadTempId}`;
+        if (!existsSync(THREADS_DIR)) {
+          mkdirSync(THREADS_DIR, { recursive: true });
+        }
+
+        const gitBranch = branch || "main";
+        const cloneUrl = githubToken
+          ? `https://x-access-token:${githubToken}@github.com/${repo}.git`
+          : `https://github.com/${repo}.git`;
+
+        execFileSync(
+          "git",
+          ["clone", "--branch", gitBranch, "--single-branch", cloneUrl, threadDir],
+          { stdio: "pipe", timeout: 120_000 }
+        );
+
+        const devbox = await devboxManager.create({
+          image: "patchwork-node:latest",
+          name: `patchwork-thread-${threadTempId.slice(0, 8)}`,
+          binds: [`${threadDir}:/workspace`],
+          env: {
+            ...(githubToken ? { GITHUB_TOKEN: githubToken } : {}),
+            ...(apiKey ? { ANTHROPIC_API_KEY: apiKey } : {}),
+          },
+        });
+        devboxId = devbox.containerId;
+        resolvedWorkspacePath = "/workspace";
+      }
+
       const result = await Effect.runPromise(
         providerService.createThread({
           title,
           provider: provider as ProviderKind,
           model,
           runtimeMode: runtimeMode ?? "approval-required",
-          workspacePath,
+          workspacePath: resolvedWorkspacePath,
           useSubscription: subscription,
           apiKey,
           githubToken,
           userId,
           issueId,
+          repo,
+          branch,
+          devboxId,
         })
       );
 
@@ -160,12 +205,107 @@ export function threadsRouter(providerService: ProviderService): Router {
     }
   });
 
+  // Create PR from thread changes
+  router.post("/:id/pr", async (req, res) => {
+    try {
+      const userId = (req as any).user?.id;
+      const thread = await prisma.thread.findUnique({
+        where: { id: req.params.id },
+      });
+
+      if (!thread) return res.status(404).json({ error: "Thread not found" });
+      if (!thread.repo) return res.status(400).json({ error: "Thread has no associated repo" });
+
+      // Get GitHub token
+      let githubToken: string | undefined;
+      if (userId) {
+        const account = await prisma.account.findFirst({
+          where: { userId, providerId: "github" },
+        });
+        githubToken = account?.accessToken ?? undefined;
+      }
+      if (!githubToken) {
+        return res.status(400).json({ error: "No GitHub access token available" });
+      }
+
+      const [owner, repoName] = thread.repo.split("/");
+      const branchName = `patchwork/thread-${thread.id.slice(0, 8)}`;
+      const baseBranch = thread.branch || "main";
+
+      // Run git commands in devbox or on host
+      if (thread.devboxId) {
+        await devboxManager.runInContainer(thread.devboxId, [
+          "git", "-C", "/workspace", "checkout", "-b", branchName,
+        ]);
+        await devboxManager.runInContainer(thread.devboxId, [
+          "git", "-C", "/workspace", "add", "-A",
+        ]);
+        await devboxManager.runInContainer(thread.devboxId, [
+          "git", "-C", "/workspace", "commit", "-m", `Changes from Patchwork thread: ${thread.title}`,
+        ]);
+        await devboxManager.runInContainer(thread.devboxId, [
+          "git", "-C", "/workspace", "push", "origin", branchName,
+        ]);
+      } else {
+        const cwd = thread.workspacePath || "/workspace";
+        execFileSync("git", ["checkout", "-b", branchName], { cwd, stdio: "pipe" });
+        execFileSync("git", ["add", "-A"], { cwd, stdio: "pipe" });
+        execFileSync("git", ["commit", "-m", `Changes from Patchwork thread: ${thread.title}`], { cwd, stdio: "pipe" });
+        execFileSync("git", ["push", "origin", branchName], { cwd, stdio: "pipe" });
+      }
+
+      // Create PR via GitHub API
+      const octokit = new Octokit({ auth: githubToken });
+      const { data: pr } = await octokit.pulls.create({
+        owner,
+        repo: repoName,
+        title: thread.title,
+        head: branchName,
+        base: baseBranch,
+        body: `Created by Patchwork from thread: ${thread.title}\n\nThread ID: ${thread.id}`,
+      });
+
+      // Store PR URL on thread
+      await prisma.thread.update({
+        where: { id: thread.id },
+        data: { workspacePath: thread.workspacePath }, // touch updatedAt
+      });
+
+      res.json({ prUrl: pr.html_url, prNumber: pr.number });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   // Delete thread
   router.delete("/:id", async (req, res) => {
     try {
       const userId = (req as any).user?.id;
       const where: any = { id: req.params.id };
       if (userId) where.userId = userId;
+
+      // Look up thread for cleanup before deletion
+      const thread = await prisma.thread.findUnique({ where: { id: req.params.id } });
+      if (thread) {
+        try {
+          // Stop session if still active
+          if (thread.status === "active") {
+            await Effect.runPromise(
+              providerService.stopThread(ThreadId(thread.id))
+            ).catch(() => {});
+          }
+          // Destroy devbox container if present
+          if (thread.devboxId) {
+            await devboxManager.destroy(thread.devboxId).catch(() => {});
+          }
+          // Remove workspace directory
+          const threadDir = `${THREADS_DIR}/${thread.id}`;
+          rmSync(threadDir, { recursive: true, force: true });
+        } catch {
+          // Cleanup errors should not prevent thread deletion
+        }
+      }
+
       await prisma.thread.delete({ where });
       res.json({ ok: true });
     } catch (err: any) {

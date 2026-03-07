@@ -86,6 +86,28 @@ export interface RuntimeWarningPayload {
   message: string;
 }
 
+export interface DiffLine {
+  type: "add" | "remove" | "context";
+  content: string;
+}
+
+export interface DiffHunk {
+  header: string;
+  lines: DiffLine[];
+}
+
+export interface DiffFile {
+  path: string;
+  status: "added" | "modified" | "deleted";
+  hunks: DiffHunk[];
+}
+
+export interface DiffUpdatedPayload {
+  turnId: TurnId;
+  diff: string;
+  files: DiffFile[];
+}
+
 // Discriminated Union
 export type ProviderRuntimeEvent =
   | { type: "session.started"; payload: SessionStartedPayload }
@@ -100,7 +122,8 @@ export type ProviderRuntimeEvent =
   | { type: "request.opened"; payload: RequestOpenedPayload }
   | { type: "request.resolved"; payload: RequestResolvedPayload }
   | { type: "runtime.error"; payload: RuntimeErrorPayload }
-  | { type: "runtime.warning"; payload: RuntimeWarningPayload };
+  | { type: "runtime.warning"; payload: RuntimeWarningPayload }
+  | { type: "diff.updated"; payload: DiffUpdatedPayload };
 
 // Envelope wrapping each event with metadata
 export interface ProviderEventEnvelope {

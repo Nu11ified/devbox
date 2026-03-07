@@ -40,6 +40,9 @@ export class ProviderService {
     githubToken?: string;
     userId?: string;
     issueId?: string;
+    repo?: string;
+    branch?: string;
+    devboxId?: string;
   }): Effect.Effect<{ thread: any; session: ProviderSession }, AdapterError> {
     const self = this;
     return Effect.gen(function* () {
@@ -57,6 +60,9 @@ export class ProviderService {
               workspacePath: input.workspacePath,
               userId: input.userId,
               issueId: input.issueId,
+              repo: input.repo,
+              branch: input.branch,
+              devboxId: input.devboxId,
             },
           }),
         catch: (e) =>
@@ -74,6 +80,8 @@ export class ProviderService {
         useSubscription: input.useSubscription,
         apiKey: input.apiKey,
         githubToken: input.githubToken,
+        repo: input.repo,
+        branch: input.branch,
       });
 
       yield* Effect.tryPromise({

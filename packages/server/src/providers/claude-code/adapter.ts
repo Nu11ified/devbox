@@ -1,6 +1,8 @@
 import { Effect, Stream, Queue, Deferred } from "effect";
 import { randomUUID } from "node:crypto";
+import { execFileSync } from "node:child_process";
 import { query } from "@anthropic-ai/claude-agent-sdk";
+import { parseDiff } from "./parse-diff.js";
 import type {
   ProviderAdapterShape,
   ProviderCapabilities,
@@ -266,6 +268,28 @@ export class ClaudeCodeAdapter implements ProviderAdapterShape {
         if (message.type === "system" && (message as any).subtype === "init") {
           state.session.resumeCursor = (message as any).session_id;
         }
+      }
+
+      // Emit diff after turn completes
+      try {
+        const cwd = state.session.workspacePath || "/workspace";
+        const rawDiff = execFileSync("git", ["diff", "HEAD"], {
+          cwd,
+          encoding: "utf-8",
+          timeout: 10_000,
+        });
+        if (rawDiff.trim()) {
+          const files = parseDiff(rawDiff);
+          await this.enqueue(
+            this.makeEnvelope("diff.updated", threadId, {
+              turnId,
+              diff: rawDiff,
+              files,
+            }, turnId)
+          );
+        }
+      } catch {
+        // Ignore diff errors (e.g. not a git repo)
       }
 
       await this.enqueue(

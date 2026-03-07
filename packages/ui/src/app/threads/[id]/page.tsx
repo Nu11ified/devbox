@@ -1,12 +1,15 @@
 "use client";
 
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useCallback, useRef, useMemo } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { api } from "@/lib/api";
 import { useThreadSocket, type ThreadEvent } from "@/hooks/use-thread-socket";
+import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
 import { Timeline, type TimelineItem } from "@/components/thread/timeline";
 import { Composer } from "@/components/thread/composer";
-import { Loader2, Trash2, Square } from "lucide-react";
+import { DiffPanel } from "@/components/thread/diff-panel";
+import { TerminalDrawer } from "@/components/thread/terminal-drawer";
+import { Loader2, Trash2, Square, GitCompareArrows, TerminalIcon, GitPullRequest } from "lucide-react";
 
 export default function ThreadDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -15,6 +18,21 @@ export default function ThreadDetailPage() {
   const [items, setItems] = useState<TimelineItem[]>([]);
   const [running, setRunning] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [showDiff, setShowDiff] = useState(false);
+  const [showTerminal, setShowTerminal] = useState(false);
+  const [diffFiles, setDiffFiles] = useState<
+    Array<{
+      path: string;
+      status: "added" | "modified" | "deleted";
+      hunks: Array<{
+        header: string;
+        lines: Array<{ type: "add" | "remove" | "context"; content: string }>;
+      }>;
+    }>
+  >([]);
+  const [terminalLines, setTerminalLines] = useState<
+    Array<{ id: string; content: string; timestamp: number }>
+  >([]);
   const assistantTextRef = useRef<string>("");
   const assistantItemIdRef = useRef<string | null>(null);
 
@@ -95,6 +113,12 @@ export default function ThreadDetailPage() {
           break;
         }
 
+        case "diff.updated": {
+          setDiffFiles(e.payload.files ?? []);
+          setShowDiff(true);
+          break;
+        }
+
         case "item.started": {
           setItems((prev) => [
             ...prev,
@@ -107,6 +131,16 @@ export default function ThreadDetailPage() {
               completed: false,
             },
           ]);
+          if (e.payload.toolCategory === "command_execution") {
+            setTerminalLines((prev) => [
+              ...prev,
+              {
+                id: e.payload.itemId,
+                content: `$ ${e.payload.input ?? ""}`,
+                timestamp: Date.now(),
+              },
+            ]);
+          }
           break;
         }
 
@@ -118,6 +152,15 @@ export default function ThreadDetailPage() {
                 : i
             )
           );
+          if (e.payload.toolCategory === "command_execution" && e.payload.output) {
+            setTerminalLines((prev) =>
+              prev.map((line) =>
+                line.id === e.payload.itemId
+                  ? { ...line, content: `${line.content}\n${e.payload.output}` }
+                  : line
+              )
+            );
+          }
           break;
         }
 
@@ -174,6 +217,31 @@ export default function ThreadDetailPage() {
     onEvent: handleEvent,
   });
 
+  const shortcuts = useMemo(
+    () => [
+      { key: "d", meta: true, handler: () => setShowDiff((v) => !v), description: "Toggle diff panel" },
+      { key: "t", meta: true, handler: () => setShowTerminal((v) => !v), description: "Toggle terminal" },
+      { key: "Escape", handler: () => { setShowDiff(false); setShowTerminal(false); }, description: "Close panels" },
+    ],
+    []
+  );
+  useKeyboardShortcuts(shortcuts);
+
+  // Listen for custom keyboard events from layout
+  useEffect(() => {
+    const onToggleDiff = () => setShowDiff((v) => !v);
+    const onToggleTerminal = () => setShowTerminal((v) => !v);
+    const onClosePanels = () => { setShowDiff(false); setShowTerminal(false); };
+    window.addEventListener("toggle-diff", onToggleDiff);
+    window.addEventListener("toggle-terminal", onToggleTerminal);
+    window.addEventListener("close-panels", onClosePanels);
+    return () => {
+      window.removeEventListener("toggle-diff", onToggleDiff);
+      window.removeEventListener("toggle-terminal", onToggleTerminal);
+      window.removeEventListener("close-panels", onClosePanels);
+    };
+  }, []);
+
   const handleSend = useCallback(
     (text: string, model?: string) => {
       setItems((prev) => [
@@ -196,6 +264,23 @@ export default function ThreadDetailPage() {
     }
   }
 
+  const [creatingPR, setCreatingPR] = useState(false);
+  const [prUrl, setPrUrl] = useState<string | null>(null);
+
+  async function handleCreatePR() {
+    if (!id) return;
+    setCreatingPR(true);
+    try {
+      const result = await api.createPR(id);
+      setPrUrl(result.prUrl);
+      window.open(result.prUrl, "_blank");
+    } catch (err: any) {
+      console.error("Failed to create PR:", err);
+    } finally {
+      setCreatingPR(false);
+    }
+  }
+
   async function handleDelete() {
     if (!id || !confirm("Delete this thread?")) return;
     try {
@@ -209,14 +294,14 @@ export default function ThreadDetailPage() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-screen">
+      <div className="flex items-center justify-center h-full">
         <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
       </div>
     );
   }
 
   return (
-    <div className="flex flex-col h-screen">
+    <div className="flex flex-col h-full">
       <div className="border-b border-border/40 px-4 py-2.5 flex items-center justify-between">
         <div className="flex items-center gap-3">
           <h1 className="text-sm font-medium truncate max-w-md">
@@ -232,6 +317,37 @@ export default function ThreadDetailPage() {
           )}
         </div>
         <div className="flex items-center gap-2">
+          <button
+            onClick={() => setShowDiff((v) => !v)}
+            className={`flex items-center gap-1 px-2 py-1 rounded text-[10px] font-mono transition-colors ${showDiff ? "text-primary bg-primary/10" : "text-muted-foreground/50 hover:text-foreground hover:bg-muted"}`}
+            title="Toggle diff panel (⌘⇧D)"
+          >
+            <GitCompareArrows className="h-3 w-3" />
+            Diff
+          </button>
+          <button
+            onClick={() => setShowTerminal((v) => !v)}
+            className={`flex items-center gap-1 px-2 py-1 rounded text-[10px] font-mono transition-colors ${showTerminal ? "text-primary bg-primary/10" : "text-muted-foreground/50 hover:text-foreground hover:bg-muted"}`}
+            title="Toggle terminal (⌘⇧J)"
+          >
+            <TerminalIcon className="h-3 w-3" />
+            Terminal
+          </button>
+          {thread?.repo && (
+            <button
+              onClick={handleCreatePR}
+              disabled={creatingPR || !!prUrl}
+              className="flex items-center gap-1 px-2 py-1 rounded text-[10px] font-mono text-green-600 hover:bg-green-500/10 transition-colors disabled:opacity-50"
+              title="Create pull request"
+            >
+              {creatingPR ? (
+                <Loader2 className="h-3 w-3 animate-spin" />
+              ) : (
+                <GitPullRequest className="h-3 w-3" />
+              )}
+              {prUrl ? "PR Created" : "Create PR"}
+            </button>
+          )}
           {running && (
             <button
               onClick={handleForceStop}
@@ -256,16 +372,32 @@ export default function ThreadDetailPage() {
         </div>
       </div>
 
-      <Timeline items={items} onApprove={approve} />
+      <div className="flex flex-1 min-h-0">
+        <div className="flex flex-col flex-1 min-w-0">
+          <Timeline items={items} onApprove={approve} />
 
-      <Composer
-        onSend={handleSend}
-        onInterrupt={interrupt}
-        onStop={stop}
-        running={running}
-        connected={connected}
-        provider={thread?.provider}
-        model={thread?.model}
+          <Composer
+            onSend={handleSend}
+            onInterrupt={interrupt}
+            onStop={stop}
+            running={running}
+            connected={connected}
+            provider={thread?.provider}
+            model={thread?.model}
+          />
+        </div>
+
+        <DiffPanel
+          files={diffFiles}
+          open={showDiff}
+          onClose={() => setShowDiff(false)}
+        />
+      </div>
+
+      <TerminalDrawer
+        lines={terminalLines}
+        open={showTerminal}
+        onToggle={() => setShowTerminal((v) => !v)}
       />
     </div>
   );

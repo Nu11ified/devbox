@@ -274,6 +274,9 @@ model Thread {
   model       String?
   runtimeMode String   @default("approval-required") @map("runtime_mode")
   status      String   @default("idle")
+  repo        String?
+  branch      String?
+  devboxId    String?  @map("devbox_id")
   issueId     String?  @unique @map("issue_id") @db.Uuid
   userId      String?  @map("user_id")
   workspacePath String? @map("workspace_path")

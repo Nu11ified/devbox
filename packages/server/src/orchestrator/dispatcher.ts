@@ -1,3 +1,4 @@
+import { Effect } from "effect";
 import { BUILTIN_BLUEPRINTS } from "../blueprints/definitions.js";
 import { BlueprintEngine } from "../blueprints/engine.js";
 import { PersistentBlueprintRunner } from "../blueprints/persistent-runner.js";
@@ -8,6 +9,8 @@ import { PatchStore } from "../patchwork/store.js";
 import { getPool, findTemplateById, updateIssue } from "../db/queries.js";
 import prisma from "../db/prisma.js";
 import type { AgentBackend } from "@patchwork/shared";
+import type { ProviderService } from "../providers/service.js";
+import { ThreadId } from "../providers/types.js";
 
 const devboxManager = new DevboxManager();
 const engine = new BlueprintEngine();
@@ -17,17 +20,20 @@ const patchStore = new PatchStore();
  * Dispatches a single issue: provisions a devbox, executes the blueprint,
  * and updates statuses throughout. Wrapped in try/finally for cleanup.
  */
-export async function dispatchIssue(issue: {
-  id: string;
-  identifier: string;
-  blueprintId: string;
-  templateId: string | null;
-  repo: string;
-  branch: string;
-  title: string;
-  body: string;
-  createdByUserId?: string | null;
-}): Promise<void> {
+export async function dispatchIssue(
+  issue: {
+    id: string;
+    identifier: string;
+    blueprintId: string;
+    templateId: string | null;
+    repo: string;
+    branch: string;
+    title: string;
+    body: string;
+    createdByUserId?: string | null;
+  },
+  providerService?: ProviderService
+): Promise<void> {
   const db = getPool();
 
   // Resolve user subscription settings
@@ -36,6 +42,51 @@ export async function dispatchIssue(issue: {
         where: { userId: issue.createdByUserId },
       })
     : null;
+
+  // Create a thread linked to this issue via ProviderService
+  if (providerService) {
+    try {
+      const apiKey = userSettings?.anthropicApiKey ?? undefined;
+      const useSubscription = userSettings?.claudeSubscription ?? false;
+
+      // Look up GitHub token for the user
+      let githubToken: string | undefined;
+      if (issue.createdByUserId) {
+        const account = await prisma.account.findFirst({
+          where: { userId: issue.createdByUserId, providerId: "github" },
+        });
+        githubToken = account?.accessToken ?? undefined;
+      }
+
+      const { thread } = await Effect.runPromise(
+        providerService.createThread({
+          title: issue.title,
+          provider: "claudeCode",
+          runtimeMode: "full-access",
+          workspacePath: "/workspace",
+          useSubscription,
+          apiKey,
+          githubToken,
+          userId: issue.createdByUserId ?? undefined,
+          issueId: issue.id,
+          repo: issue.repo,
+          branch: issue.branch,
+        })
+      );
+
+      // Send the issue body as the first turn
+      await Effect.runPromise(
+        providerService.sendTurn({
+          threadId: ThreadId(thread.id),
+          text: `${issue.title}\n\n${issue.body}`,
+        })
+      );
+
+      console.log(`[dispatcher] created thread ${thread.id} for issue ${issue.identifier}`);
+    } catch (err) {
+      console.error(`[dispatcher] failed to create thread for issue ${issue.identifier}:`, err);
+    }
+  }
 
   // 1. Validate blueprint
   const definition = BUILTIN_BLUEPRINTS.get(issue.blueprintId);

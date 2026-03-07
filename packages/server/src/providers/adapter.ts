@@ -24,6 +24,8 @@ export interface SessionStartInput {
   apiKey?: string;
   githubToken?: string;
   resumeCursor?: unknown;
+  repo?: string;
+  branch?: string;
 }
 
 export interface SendTurnInput {
