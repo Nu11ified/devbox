@@ -35,7 +35,8 @@ export function basicAuth(): RequestHandler {
 
     const header = req.headers.authorization;
     if (!header || !header.startsWith("Basic ")) {
-      res.setHeader("WWW-Authenticate", 'Basic realm="Patchwork"');
+      // Return 401 without WWW-Authenticate to avoid triggering
+      // the browser's native auth prompt on proxied API requests
       res.status(401).json({ error: "Authentication required" });
       return;
     }
@@ -49,7 +50,6 @@ export function basicAuth(): RequestHandler {
       return next();
     }
 
-    res.setHeader("WWW-Authenticate", 'Basic realm="Patchwork"');
     res.status(401).json({ error: "Invalid credentials" });
   };
 }

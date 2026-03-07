@@ -20,9 +20,13 @@ export function sessionAuth(): RequestHandler {
 
     const token = extractSessionToken(req.headers.cookie);
     if (!token) {
-      return next(); // Fall through to basic auth
+      return next(); // No session cookie — fall through to basic auth
     }
 
+    // Session cookie is present — authenticate via DB or reject.
+    // Do NOT fall through to basic auth when a session cookie exists,
+    // because basicAuth's WWW-Authenticate header triggers the browser's
+    // native prompt loop.
     try {
       const session = await prisma.session.findUnique({
         where: { token },
@@ -30,14 +34,16 @@ export function sessionAuth(): RequestHandler {
       });
 
       if (!session || session.expiresAt < new Date()) {
-        return next(); // Fall through to basic auth
+        res.status(401).json({ error: "Session expired" });
+        return;
       }
 
       (req as any).user = session.user;
       (req as any).session = session;
       next();
-    } catch {
-      next(); // Fall through to basic auth on DB errors
+    } catch (err) {
+      console.error("[sessionAuth] DB lookup failed:", err);
+      res.status(500).json({ error: "Session validation failed" });
     }
   };
 }
