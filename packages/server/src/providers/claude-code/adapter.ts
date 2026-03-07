@@ -1,5 +1,6 @@
 import { Effect, Stream, Queue, Deferred } from "effect";
 import { randomUUID } from "node:crypto";
+import { query } from "@anthropic-ai/claude-agent-sdk";
 import type {
   ProviderAdapterShape,
   ProviderCapabilities,
@@ -27,9 +28,15 @@ interface PendingRequest {
 }
 
 interface SessionState {
-  session: ProviderSession;
+  session: ProviderSession & {
+    apiKey?: string;
+    useSubscription?: boolean;
+    githubToken?: string;
+    workspacePath?: string;
+  };
   abortController: AbortController;
   pendingRequests: Map<string, PendingRequest>;
+  activeQuery: ReturnType<typeof query> | null;
 }
 
 export class ClaudeCodeAdapter implements ProviderAdapterShape {
@@ -46,25 +53,6 @@ export class ClaudeCodeAdapter implements ProviderAdapterShape {
 
   constructor() {
     this.eventQueue = Effect.runSync(Queue.unbounded<ProviderEventEnvelope>());
-  }
-
-  private sdkModule: any = null;
-
-  private async getSDK() {
-    if (!this.sdkModule) {
-      try {
-        this.sdkModule = await import("@anthropic-ai/claude-code" as any);
-      } catch {
-        try {
-          this.sdkModule = await import("@anthropic-ai/claude-agent-sdk" as any);
-        } catch {
-          throw new Error(
-            "Claude Agent SDK not installed. Install @anthropic-ai/claude-code or @anthropic-ai/claude-agent-sdk."
-          );
-        }
-      }
-    }
-    return this.sdkModule;
   }
 
   private makeEnvelope(
@@ -99,19 +87,24 @@ export class ClaudeCodeAdapter implements ProviderAdapterShape {
     return Effect.gen(function* () {
       const sessionId = randomUUID();
 
-      const session: ProviderSession = {
+      const session: SessionState["session"] = {
         threadId: input.threadId,
         provider: "claudeCode",
         sessionId,
-        model: input.model ?? "claude-sonnet-4-20250514",
+        model: input.model ?? "claude-sonnet-4-6",
         runtimeMode: input.runtimeMode,
         resumeCursor: input.resumeCursor,
+        apiKey: input.apiKey,
+        useSubscription: input.useSubscription,
+        githubToken: input.githubToken,
+        workspacePath: input.workspacePath,
       };
 
       const state: SessionState = {
         session,
         abortController: new AbortController(),
         pendingRequests: new Map(),
+        activeQuery: null,
       };
 
       self.sessions.set(input.threadId as string, state);
@@ -143,6 +136,12 @@ export class ClaudeCodeAdapter implements ProviderAdapterShape {
       const state = self.sessions.get(threadId as string);
       if (!state) {
         return yield* Effect.fail(new SessionNotFoundError({ threadId }));
+      }
+
+      // Interrupt and abort the active query
+      if (state.activeQuery) {
+        state.activeQuery.interrupt().catch(() => {});
+        state.activeQuery = null;
       }
 
       state.abortController.abort();
@@ -201,8 +200,8 @@ export class ClaudeCodeAdapter implements ProviderAdapterShape {
           }),
       });
 
-      // Fire off the SDK query in the background (don't await — events stream to queue)
-      self.runQuery(state, input, turnId).catch((err) => {
+      // Fire off the Agent SDK query in the background
+      self.runAgentQuery(state, input.text, turnId, input.model).catch((err) => {
         self.enqueue(
           self.makeEnvelope("runtime.error", input.threadId, {
             message: err?.message ?? String(err),
@@ -215,39 +214,57 @@ export class ClaudeCodeAdapter implements ProviderAdapterShape {
     });
   }
 
-  private async runQuery(
+  private async runAgentQuery(
     state: SessionState,
-    input: SendTurnInput,
-    turnId: TurnId
+    text: string,
+    turnId: TurnId,
+    model?: string,
   ): Promise<void> {
-    const sdk = await this.getSDK();
     const threadId = state.session.threadId;
     const isFullAccess = state.session.runtimeMode === "full-access";
 
+    const env: Record<string, string> = {};
+    if (state.session.apiKey) {
+      env.ANTHROPIC_API_KEY = state.session.apiKey;
+    }
+    if (state.session.githubToken) {
+      env.GITHUB_TOKEN = state.session.githubToken;
+    }
+
+    const opts: Record<string, unknown> = {
+      model: model ?? state.session.model ?? "claude-sonnet-4-6",
+      cwd: state.session.workspacePath || "/workspace",
+      permissionMode: isFullAccess ? "bypassPermissions" : "default",
+      allowDangerouslySkipPermissions: isFullAccess,
+      maxTurns: 50,
+      abortController: state.abortController,
+      env,
+    };
+
+    if (isFullAccess) {
+      opts.allowedTools = [
+        "Read", "Edit", "Write", "Bash", "Glob", "Grep",
+        "WebSearch", "WebFetch",
+      ];
+    }
+
+    if (state.session.resumeCursor) {
+      opts.resume = state.session.resumeCursor;
+    }
+
+    const q = query({ prompt: text, options: opts as any });
+    state.activeQuery = q;
+
     try {
-      const options: Record<string, unknown> = {
-        prompt: input.text,
-        model: input.model ?? state.session.model,
-        abortSignal: state.abortController.signal,
-      };
-
-      if (isFullAccess) {
-        options.allowedTools = ["*"];
-      }
-
-      if (state.session.resumeCursor) {
-        options.resume = state.session.resumeCursor;
-      }
-
-      const result = sdk.query ? sdk.query(options) : sdk.default?.query?.(options);
-      if (!result) throw new Error("SDK query() not available");
-
-      for await (const message of result) {
-        if (state.abortController.signal.aborted) break;
-
+      for await (const message of q) {
         const envelopes = this.mapSDKMessage(message, threadId, turnId);
         for (const env of envelopes) {
           await this.enqueue(env);
+        }
+
+        // Capture session_id from init for resume support
+        if (message.type === "system" && (message as any).subtype === "init") {
+          state.session.resumeCursor = (message as any).session_id;
         }
       }
 
@@ -263,6 +280,8 @@ export class ClaudeCodeAdapter implements ProviderAdapterShape {
           recoverable: true,
         }, turnId)
       );
+    } finally {
+      state.activeQuery = null;
     }
   }
 
@@ -273,42 +292,60 @@ export class ClaudeCodeAdapter implements ProviderAdapterShape {
   ): ProviderEventEnvelope[] {
     const envelopes: ProviderEventEnvelope[] = [];
 
-    if (message.type === "text" || message.type === "content_block_delta") {
-      const delta = message.text ?? message.delta?.text ?? "";
-      if (delta) {
+    if (message.type === "assistant") {
+      // SDKAssistantMessage: message.message is a BetaMessage with content[]
+      const betaMessage = message.message;
+      if (betaMessage?.content) {
+        for (const block of betaMessage.content) {
+          if (block.type === "text") {
+            envelopes.push(
+              this.makeEnvelope("content.delta", threadId, {
+                turnId, kind: "text", delta: block.text,
+              }, turnId, message)
+            );
+          } else if (block.type === "tool_use") {
+            envelopes.push(
+              this.makeEnvelope("item.started", threadId, {
+                turnId,
+                itemId: block.id ?? randomUUID(),
+                toolName: block.name ?? "unknown",
+                toolCategory: classifyTool(block.name ?? "unknown"),
+                input: block.input ?? {},
+              }, turnId, message)
+            );
+          } else if (block.type === "thinking") {
+            if (block.thinking) {
+              envelopes.push(
+                this.makeEnvelope("content.delta", threadId, {
+                  turnId, kind: "reasoning", delta: block.thinking,
+                }, turnId, message)
+              );
+            }
+          }
+        }
+      }
+    } else if (message.type === "result") {
+      if (message.subtype === "success") {
         envelopes.push(
-          this.makeEnvelope("content.delta", threadId, {
-            turnId, kind: "text", delta,
+          this.makeEnvelope("session.configured", threadId, {
+            sessionId: message.session_id,
+            totalCostUsd: message.total_cost_usd,
+            usage: message.usage,
+          }, turnId, message)
+        );
+      } else if (message.subtype?.startsWith("error")) {
+        const errorMsg = message.errors?.join("; ") ?? message.subtype;
+        envelopes.push(
+          this.makeEnvelope("runtime.error", threadId, {
+            message: errorMsg,
+            recoverable: true,
           }, turnId, message)
         );
       }
-    } else if (message.type === "thinking" || message.type === "reasoning") {
-      const delta = message.thinking ?? message.text ?? "";
-      if (delta) {
-        envelopes.push(
-          this.makeEnvelope("content.delta", threadId, {
-            turnId, kind: "reasoning", delta,
-          }, turnId, message)
-        );
-      }
-    } else if (message.type === "tool_use") {
+    } else if (message.type === "system" && (message as any).subtype === "init") {
       envelopes.push(
-        this.makeEnvelope("item.started", threadId, {
-          turnId,
-          itemId: message.id ?? randomUUID(),
-          toolName: message.name ?? "unknown",
-          toolCategory: classifyTool(message.name ?? "unknown"),
-          input: message.input ?? {},
-        }, turnId, message)
-      );
-    } else if (message.type === "tool_result") {
-      envelopes.push(
-        this.makeEnvelope("item.completed", threadId, {
-          turnId,
-          itemId: message.tool_use_id ?? randomUUID(),
-          toolName: message.name ?? "unknown",
-          output: message.content,
-          error: message.is_error ? String(message.content) : undefined,
+        this.makeEnvelope("session.configured", threadId, {
+          sessionId: (message as any).session_id,
         }, turnId, message)
       );
     }
@@ -323,8 +360,18 @@ export class ClaudeCodeAdapter implements ProviderAdapterShape {
       if (!state) {
         return yield* Effect.fail(new SessionNotFoundError({ threadId }));
       }
-      state.abortController.abort();
-      state.abortController = new AbortController();
+      // Use the SDK's interrupt method instead of aborting the controller
+      if (state.activeQuery) {
+        yield* Effect.tryPromise({
+          try: () => state.activeQuery!.interrupt(),
+          catch: () =>
+            new ProcessError({
+              threadId,
+              message: "Failed to interrupt query",
+              recoverable: true,
+            }),
+        });
+      }
     });
   }
 

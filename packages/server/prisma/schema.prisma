@@ -258,6 +258,7 @@ model UserSettings {
   defaultProvider      String? @map("default_provider")
   defaultModel         String? @map("default_model")
   defaultRuntimeMode   String? @map("default_runtime_mode")
+  anthropicApiKey      String? @map("anthropic_api_key")
 
   user User @relation(fields: [userId], references: [id])
 

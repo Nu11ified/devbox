@@ -17,7 +17,15 @@ settingsRouter.get("/", async (req, res) => {
     update: {},
   });
 
-  res.json(settings);
+  // Mask API key — only return last 4 chars
+  const masked = {
+    ...settings,
+    anthropicApiKey: settings.anthropicApiKey
+      ? `****${settings.anthropicApiKey.slice(-4)}`
+      : null,
+  };
+
+  res.json(masked);
 });
 
 // PUT /api/settings — update settings
@@ -38,6 +46,7 @@ settingsRouter.put("/", async (req, res) => {
     defaultProvider,
     defaultModel,
     defaultRuntimeMode,
+    anthropicApiKey,
   } = req.body;
 
   const data: Record<string, unknown> = {};
@@ -50,6 +59,7 @@ settingsRouter.put("/", async (req, res) => {
   if (defaultProvider !== undefined) data.defaultProvider = defaultProvider;
   if (defaultModel !== undefined) data.defaultModel = defaultModel;
   if (defaultRuntimeMode !== undefined) data.defaultRuntimeMode = defaultRuntimeMode;
+  if (anthropicApiKey !== undefined) data.anthropicApiKey = anthropicApiKey;
 
   const settings = await prisma.userSettings.upsert({
     where: { userId: user.id },

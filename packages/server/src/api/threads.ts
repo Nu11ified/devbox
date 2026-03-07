@@ -58,15 +58,16 @@ export function threadsRouter(providerService: ProviderService): Router {
       }
 
       let subscription = useSubscription ?? false;
-      if (userId && !useSubscription) {
+      let apiKey: string | undefined;
+      let githubToken: string | undefined;
+
+      if (userId) {
         const settings = await prisma.userSettings.findUnique({ where: { userId } });
-        if (provider === "claudeCode" && settings?.claudeSubscription) {
+        if (!useSubscription && provider === "claudeCode" && settings?.claudeSubscription) {
           subscription = true;
         }
-      }
+        apiKey = settings?.anthropicApiKey ?? undefined;
 
-      let githubToken: string | undefined;
-      if (userId) {
         const account = await prisma.account.findFirst({
           where: { userId, providerId: "github" },
         });
@@ -81,6 +82,7 @@ export function threadsRouter(providerService: ProviderService): Router {
           runtimeMode: runtimeMode ?? "approval-required",
           workspacePath,
           useSubscription: subscription,
+          apiKey,
           githubToken,
           userId,
           issueId,

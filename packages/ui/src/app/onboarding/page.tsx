@@ -48,6 +48,7 @@ export default function OnboardingPage() {
   const [selectedRepos, setSelectedRepos] = useState<Set<string>>(new Set());
   const [claudeSub, setClaudeSub] = useState(false);
   const [openaiSub, setOpenaiSub] = useState(false);
+  const [anthropicKey, setAnthropicKey] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -87,6 +88,7 @@ export default function OnboardingPage() {
         claudeSubscription: claudeSub,
         openaiSubscription: openaiSub,
         onboardingCompleted: true,
+        ...(anthropicKey ? { anthropicApiKey: anthropicKey } : {}),
       });
       router.push("/board");
       router.refresh();
@@ -214,6 +216,28 @@ export default function OnboardingPage() {
               </p>
             )}
           </div>
+
+          {/* API Key */}
+          {!claudeSub && (
+            <div className="space-y-2">
+              <Label className="text-[11px] font-mono uppercase tracking-wider text-muted-foreground/70">
+                Anthropic API Key
+              </Label>
+              <input
+                type="password"
+                value={anthropicKey}
+                onChange={(e) => setAnthropicKey(e.target.value)}
+                placeholder="sk-ant-..."
+                className="h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 placeholder:text-muted-foreground/40 font-mono"
+              />
+              <p className="text-[11px] text-muted-foreground/50">
+                Required unless using Claude subscription. Get one at{" "}
+                <a href="https://console.anthropic.com" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">
+                  console.anthropic.com
+                </a>
+              </p>
+            </div>
+          )}
 
           {/* Subscriptions */}
           <div className="space-y-3">

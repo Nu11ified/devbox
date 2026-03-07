@@ -11,7 +11,7 @@
     "db:migrate": "tsx src/db/migrate.ts"
   },
   "dependencies": {
-    "@anthropic-ai/claude-code": "^2.1.71",
+    "@anthropic-ai/claude-agent-sdk": "^0.1.0",
     "@dbos-inc/dbos-sdk": "^4.9.11",
     "@effect/schema": "^0.75.5",
     "@octokit/rest": "^21.1.1",
