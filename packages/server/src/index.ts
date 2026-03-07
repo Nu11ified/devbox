@@ -8,6 +8,7 @@ import { issuesRouter } from "./api/issues.js";
 import { blueprintsRouter } from "./api/blueprints.js";
 import { authRouter } from "./api/auth.js";
 import { setupWebSocket } from "./api/ws.js";
+import { setupThreadWebSocket } from "./api/thread-ws.js";
 import { AuthProxy } from "./auth/proxy.js";
 import { basicAuth } from "./auth/basic.js";
 import { sessionAuth } from "./auth/session-middleware.js";
@@ -69,6 +70,7 @@ if (isMain) {
     const server = createServer(app);
 
     setupWebSocket(server);
+    setupThreadWebSocket(server, providerService);
 
     server.listen(PORT, () => {
       console.log(`Patchwork server listening on port ${PORT}`);

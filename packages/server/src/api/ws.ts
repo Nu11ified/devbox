@@ -17,7 +17,7 @@ export function setupWebSocket(server: HttpServer): void {
     const match = url.pathname.match(/^\/api\/runs\/([^/]+)\/stream$/);
 
     if (!match) {
-      socket.destroy();
+      // Don't destroy — let other upgrade handlers (e.g. thread-ws) handle it
       return;
     }
 
