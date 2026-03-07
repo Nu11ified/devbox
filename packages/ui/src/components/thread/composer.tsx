@@ -66,8 +66,8 @@ export function Composer({
             value={text}
             onChange={(e) => setText(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder={connected ? "Send a message..." : "Connecting..."}
-            disabled={!connected}
+            placeholder="Send a message..."
+            disabled={false}
             rows={1}
             className="w-full resize-none rounded-lg border border-border/40 bg-muted/20 px-3 py-2.5 text-sm font-mono placeholder:text-muted-foreground/40 focus:outline-none focus:ring-1 focus:ring-primary/30 min-h-[40px] max-h-[200px]"
             style={{ height: "auto" }}
@@ -120,7 +120,7 @@ export function Composer({
               size="icon"
               className="h-9 w-9"
               onClick={handleSend}
-              disabled={!text.trim() || !connected}
+              disabled={!text.trim()}
               title="Send (Cmd+Enter)"
             >
               <Send className="h-3.5 w-3.5" />

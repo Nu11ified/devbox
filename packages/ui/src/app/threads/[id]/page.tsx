@@ -210,9 +210,9 @@ export default function ThreadDetailPage() {
           )}
         </div>
         <div className="flex items-center gap-2">
-          <span className={`w-2 h-2 rounded-full ${connected ? "bg-green-500" : "bg-red-500"}`} />
+          <span className={`w-2 h-2 rounded-full ${connected ? "bg-green-500" : "bg-amber-500 animate-pulse"}`} />
           <span className="text-[10px] text-muted-foreground/60">
-            {connected ? "Connected" : "Disconnected"}
+            {connected ? "Connected" : "Reconnecting..."}
           </span>
         </div>
       </div>

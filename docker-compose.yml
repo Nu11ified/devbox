@@ -59,6 +59,7 @@ services:
       - .env
     environment:
       API_SERVER_URL: ${API_SERVER_URL:-http://server:3001}
+      NEXT_PUBLIC_SERVER_URL: ${NEXT_PUBLIC_SERVER_URL:-}
       DATABASE_URL: postgresql://${POSTGRES_USER:-patchwork}:${POSTGRES_PASSWORD:-patchwork}@postgres:5432/${POSTGRES_DB:-patchwork}
     networks:
       - patchwork
