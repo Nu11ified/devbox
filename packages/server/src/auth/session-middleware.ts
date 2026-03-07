@@ -1,13 +1,26 @@
 import type { RequestHandler } from "express";
 import prisma from "../db/prisma.js";
 
+const COOKIE_NAMES = [
+  "__Secure-better-auth.session_token",
+  "better-auth.session_token",
+  "__Secure-better-auth-session_token",
+  "better-auth-session_token",
+];
+
 function extractSessionToken(cookieHeader: string | undefined): string | null {
   if (!cookieHeader) return null;
   const cookies = cookieHeader.split(";").map((c) => c.trim());
   for (const cookie of cookies) {
-    // better-auth stores session token in "better-auth.session_token" cookie
-    if (cookie.startsWith("better-auth.session_token=")) {
-      return decodeURIComponent(cookie.slice("better-auth.session_token=".length));
+    for (const name of COOKIE_NAMES) {
+      const prefix = name + "=";
+      if (cookie.startsWith(prefix)) {
+        const raw = decodeURIComponent(cookie.slice(prefix.length));
+        // better-auth uses Hono's setSignedCookie: value is "token.hmacSignature"
+        // Strip the signature to get the actual session token
+        const lastDot = raw.lastIndexOf(".");
+        return lastDot > 0 ? raw.slice(0, lastDot) : raw;
+      }
     }
   }
   return null;
@@ -25,8 +38,7 @@ export function sessionAuth(): RequestHandler {
 
     // Session cookie is present — authenticate via DB or reject.
     // Do NOT fall through to basic auth when a session cookie exists,
-    // because basicAuth's WWW-Authenticate header triggers the browser's
-    // native prompt loop.
+    // because basicAuth's 401 triggers the browser's native prompt loop.
     try {
       const session = await prisma.session.findUnique({
         where: { token },
