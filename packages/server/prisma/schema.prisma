@@ -172,6 +172,7 @@ model Issue {
   template DevboxTemplate? @relation(fields: [templateId], references: [id])
   run      Run?            @relation(fields: [runId], references: [id])
   createdByUser User?      @relation(fields: [createdByUserId], references: [id])
+  thread   Thread?
 
   @@index([status])
   @@index([priority])
@@ -194,6 +195,7 @@ model User {
   accounts Account[]
   settings UserSettings?
   issues   Issue[]
+  threads  Thread[]
 
   @@map("user")
 }
@@ -256,4 +258,78 @@ model UserSettings {
   user User @relation(fields: [userId], references: [id])
 
   @@map("user_settings")
+}
+
+// ─── Thread system (provider adapter layer) ───────────────────────
+
+model Thread {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  title       String
+  provider    String
+  model       String?
+  runtimeMode String   @default("approval-required") @map("runtime_mode")
+  status      String   @default("idle")
+  issueId     String?  @unique @map("issue_id") @db.Uuid
+  userId      String?  @map("user_id")
+  workspacePath String? @map("workspace_path")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt   DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  issue    Issue?          @relation(fields: [issueId], references: [id])
+  user     User?           @relation(fields: [userId], references: [id])
+  sessions ThreadSession[]
+  turns    ThreadTurn[]
+  events   ThreadEvent[]
+
+  @@index([status])
+  @@index([userId])
+  @@map("threads")
+}
+
+model ThreadSession {
+  id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  threadId     String    @map("thread_id") @db.Uuid
+  provider     String
+  model        String?
+  resumeCursor Json?     @map("resume_cursor")
+  status       String    @default("starting")
+  startedAt    DateTime  @default(now()) @map("started_at") @db.Timestamptz
+  endedAt      DateTime? @map("ended_at") @db.Timestamptz
+
+  thread Thread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+
+  @@index([threadId])
+  @@map("thread_sessions")
+}
+
+model ThreadTurn {
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  threadId    String    @map("thread_id") @db.Uuid
+  turnId      String    @map("turn_id")
+  role        String    @default("user")
+  content     String?
+  status      String    @default("running")
+  startedAt   DateTime  @default(now()) @map("started_at") @db.Timestamptz
+  completedAt DateTime? @map("completed_at") @db.Timestamptz
+  tokenUsage  Json?     @map("token_usage")
+
+  thread Thread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+
+  @@index([threadId])
+  @@map("thread_turns")
+}
+
+model ThreadEvent {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  threadId  String   @map("thread_id") @db.Uuid
+  turnId    String?  @map("turn_id")
+  type      String
+  payload   Json
+  sequence  Int
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  thread Thread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+
+  @@index([threadId, sequence])
+  @@map("thread_events")
 }
