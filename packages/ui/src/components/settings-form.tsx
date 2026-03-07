@@ -17,6 +17,7 @@ import {
 import { Separator } from "@/components/ui/separator";
 
 type AgentPref = "auto" | "claude" | "codex" | "both";
+type RuntimeMode = "approval-required" | "full-access";
 
 interface AuthStatus {
   claude: { connected: boolean };
@@ -115,11 +116,24 @@ export function SettingsForm() {
   const [agentPref, setAgentPref] = useState<AgentPref>("auto");
   const [defaultBlueprint, setDefaultBlueprint] = useState("");
 
+  // Provider configuration from localStorage
+  const [defaultProvider, setDefaultProvider] = useState("claude-code");
+  const [defaultModel, setDefaultModel] = useState("");
+  const [defaultRuntimeMode, setDefaultRuntimeMode] =
+    useState<RuntimeMode>("approval-required");
+
   useEffect(() => {
     const stored = localStorage.getItem("patchwork:agentPref");
     if (stored) setAgentPref(stored as AgentPref);
     const bp = localStorage.getItem("patchwork:defaultBlueprint");
     if (bp) setDefaultBlueprint(bp);
+
+    const prov = localStorage.getItem("patchwork:defaultProvider");
+    if (prov) setDefaultProvider(prov);
+    const model = localStorage.getItem("patchwork:defaultModel");
+    if (model) setDefaultModel(model);
+    const mode = localStorage.getItem("patchwork:defaultRuntimeMode");
+    if (mode) setDefaultRuntimeMode(mode as RuntimeMode);
   }, []);
 
   const saveAgentPref = useCallback((v: AgentPref) => {
@@ -130,6 +144,21 @@ export function SettingsForm() {
   const saveDefaultBlueprint = useCallback((v: string) => {
     setDefaultBlueprint(v);
     localStorage.setItem("patchwork:defaultBlueprint", v);
+  }, []);
+
+  const saveDefaultProvider = useCallback((v: string) => {
+    setDefaultProvider(v);
+    localStorage.setItem("patchwork:defaultProvider", v);
+  }, []);
+
+  const saveDefaultModel = useCallback((v: string) => {
+    setDefaultModel(v);
+    localStorage.setItem("patchwork:defaultModel", v);
+  }, []);
+
+  const saveDefaultRuntimeMode = useCallback((v: RuntimeMode) => {
+    setDefaultRuntimeMode(v);
+    localStorage.setItem("patchwork:defaultRuntimeMode", v);
   }, []);
 
   async function handleSaveToken(provider: "claude" | "codex", token: string) {
@@ -214,6 +243,69 @@ export function SettingsForm() {
               ))}
             </SelectContent>
           </Select>
+        </div>
+      </section>
+
+      <Separator />
+
+      {/* Provider Configuration */}
+      <section className="space-y-4">
+        <div>
+          <h2 className="text-lg font-semibold">Provider Configuration</h2>
+          <p className="text-sm text-muted-foreground">
+            Defaults for the coding agent provider used in threads.
+          </p>
+        </div>
+
+        <div className="space-y-2">
+          <Label>Default Provider</Label>
+          <Select value={defaultProvider} onValueChange={saveDefaultProvider}>
+            <SelectTrigger className="w-full sm:w-64">
+              <SelectValue placeholder="Select provider" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="claude-code">Claude Code</SelectItem>
+              <SelectItem value="codex">Codex</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div className="space-y-2">
+          <Label>Default Model</Label>
+          <Input
+            placeholder="e.g. claude-sonnet-4-20250514"
+            value={defaultModel}
+            onChange={(e) => saveDefaultModel(e.target.value)}
+            className="w-full sm:w-64"
+          />
+          <p className="text-xs text-muted-foreground">
+            Leave blank to use the provider&apos;s default model.
+          </p>
+        </div>
+
+        <div className="space-y-2">
+          <Label>Default Runtime Mode</Label>
+          <RadioGroup
+            value={defaultRuntimeMode}
+            onValueChange={(v) => saveDefaultRuntimeMode(v as RuntimeMode)}
+            className="flex flex-wrap gap-4"
+          >
+            <div className="flex items-center gap-2">
+              <RadioGroupItem value="approval-required" id="mode-approval" />
+              <Label htmlFor="mode-approval" className="font-normal">
+                Approval Required
+              </Label>
+            </div>
+            <div className="flex items-center gap-2">
+              <RadioGroupItem value="full-access" id="mode-full" />
+              <Label htmlFor="mode-full" className="font-normal">
+                Full Access
+              </Label>
+            </div>
+          </RadioGroup>
+          <p className="text-xs text-muted-foreground">
+            Controls whether agent actions require manual approval before execution.
+          </p>
         </div>
       </section>
     </div>

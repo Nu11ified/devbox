@@ -254,6 +254,9 @@ model UserSettings {
   onboardingCompleted  Boolean @default(false) @map("onboarding_completed")
   defaultBlueprintId   String? @map("default_blueprint_id")
   agentPreference      String? @map("agent_preference")
+  defaultProvider      String? @map("default_provider")
+  defaultModel         String? @map("default_model")
+  defaultRuntimeMode   String? @map("default_runtime_mode")
 
   user User @relation(fields: [userId], references: [id])
 

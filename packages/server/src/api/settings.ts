@@ -35,6 +35,9 @@ settingsRouter.put("/", async (req, res) => {
     onboardingCompleted,
     defaultBlueprintId,
     agentPreference,
+    defaultProvider,
+    defaultModel,
+    defaultRuntimeMode,
   } = req.body;
 
   const data: Record<string, unknown> = {};
@@ -44,6 +47,9 @@ settingsRouter.put("/", async (req, res) => {
   if (onboardingCompleted !== undefined) data.onboardingCompleted = onboardingCompleted;
   if (defaultBlueprintId !== undefined) data.defaultBlueprintId = defaultBlueprintId;
   if (agentPreference !== undefined) data.agentPreference = agentPreference;
+  if (defaultProvider !== undefined) data.defaultProvider = defaultProvider;
+  if (defaultModel !== undefined) data.defaultModel = defaultModel;
+  if (defaultRuntimeMode !== undefined) data.defaultRuntimeMode = defaultRuntimeMode;
 
   const settings = await prisma.userSettings.upsert({
     where: { userId: user.id },
