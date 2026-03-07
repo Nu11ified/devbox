@@ -23,7 +23,9 @@ export function useThreadSocket({ threadId, onEvent }: UseThreadSocketOptions) {
   onEventRef.current = onEvent;
 
   useEffect(() => {
-    if (!threadId) return;
+    // Only connect for valid UUID thread IDs (skip "new" or other non-UUID values)
+    const uuidRe = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (!threadId || !uuidRe.test(threadId)) return;
 
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
     const wsUrl = `${protocol}//${window.location.host}/api/ws/threads?threadId=${encodeURIComponent(threadId)}`;

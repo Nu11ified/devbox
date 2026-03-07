@@ -41,6 +41,13 @@ export function setupThreadWebSocket(
       return;
     }
 
+    // Validate UUID format before querying (e.g. "new" is not a valid thread ID)
+    const uuidRe = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (!uuidRe.test(threadId)) {
+      ws.close(4000, "Invalid threadId format");
+      return;
+    }
+
     const thread = await prisma.thread.findUnique({
       where: { id: threadId },
     });
