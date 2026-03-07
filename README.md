@@ -2,6 +2,8 @@
 
 Patchwork is a self-hosted platform that runs AI coding agents inside isolated Docker containers. You give it a task description, a repository, and a branch. It spins up one or more agents (Claude or Codex), has them write code inside ephemeral containers, collects the resulting patches, and can push the branch. Workflows are defined as directed graphs called blueprints, which chain together agent steps, linting, testing, review, and CI polling. An orchestrator polls an issue board, dispatches work to available slots, and handles retries automatically.
 
+Patchwork supports both **interactive sessions** (human-in-the-loop with tool approvals) and **autonomous dispatch** (unattended batch processing) through a unified provider adapter system. Interactive sessions stream real-time content, tool calls, and approval requests over WebSocket. Each thread gets its own git worktree for isolation.
+
 ## Requirements
 
 - [Bun](https://bun.sh) (v1.3+)
@@ -9,6 +11,7 @@ Patchwork is a self-hosted platform that runs AI coding agents inside isolated D
 - PostgreSQL 17
 - Redis 7 (for caching)
 - Node.js 20 (for runtime in Docker images)
+- [Effect-TS](https://effect.website) (bundled, used for provider adapter layer)
 
 ## Installation
 
@@ -101,6 +104,25 @@ Issues labeled `patchwork` in your connected repositories are automatically sync
 
 The issue board shows all tasks across five columns: Open, Queued, In Progress, Review, and Done. Each card shows priority, labels, repository info, GitHub links, and timestamps. Click any card to see the full issue detail view with actions, error history, and run links.
 
+### Interactive Threads
+
+Start an interactive session from any issue on the board or create one directly at `/threads`. Threads provide a chat-style interface with real-time streaming of agent output, inline tool call details, and approval cards for reviewing file changes and command execution. Choose between `approval-required` mode (review each tool call) and `full-access` mode (auto-approve everything).
+
+The thread view includes:
+- **Timeline** -- Streaming assistant responses, user messages, and inline work items (file reads/writes, commands).
+- **Approval cards** -- Allow, Allow All, or Deny tool calls with full context.
+- **Diff panel** -- Syntax-highlighted file diffs from agent changes.
+- **Terminal drawer** -- Real-time command output.
+
+### Provider Adapters
+
+Patchwork uses a provider adapter system to support multiple AI coding agents behind a unified interface. Each adapter translates provider-specific SDK events into a canonical event model. Currently supported:
+
+- **Claude Code** -- Full implementation via `@anthropic-ai/claude-code` SDK. Supports interactive approvals, plan mode, resume, and model switching.
+- **Codex** -- Stub adapter (planned).
+
+Adapters are registered at startup and routed per-thread. Adding a new provider means implementing the `ProviderAdapterShape` interface.
+
 ### Agent Subscriptions
 
 During onboarding, you can enable Claude or OpenAI subscriptions. When enabled, agents run with the `--subscription` flag, using your subscription instead of API keys.
@@ -131,13 +153,17 @@ GitHub API responses are cached in Redis with three TTL tiers:
 
 **Run** -- A single execution of a blueprint. Tracks status, transcript events, and patch artifacts.
 
+**Thread** -- An interactive or autonomous agent session. Threads are bound to a provider adapter, track turns and events, and optionally link to an issue. Each thread gets its own git worktree for isolated code changes.
+
+**Provider Adapter** -- An implementation of `ProviderAdapterShape` that wraps a specific AI agent SDK (Claude Code, Codex). Adapters emit canonical `ProviderRuntimeEvent`s for session lifecycle, content streaming, tool calls, and approvals.
+
 ## Project structure
 
 The repo is a Bun monorepo with four packages:
 
-- `packages/server` -- Express API server with Prisma ORM, Redis caching, GitHub integration, orchestrator, and issue board API.
+- `packages/server` -- Express API server with Prisma ORM, Redis caching, GitHub integration, provider adapter system, orchestrator, and issue board API.
 - `packages/sidecar` -- Lightweight HTTP server that runs inside each devbox container.
-- `packages/ui` -- Next.js web interface with GitHub OAuth, kanban board, live transcripts, blueprint DAG visualization, and settings.
+- `packages/ui` -- Next.js web interface with GitHub OAuth, kanban board, interactive thread UI, live transcripts, blueprint DAG visualization, and settings.
 - `packages/shared` -- TypeScript type definitions shared across packages.
 
 ## Architecture
@@ -147,13 +173,21 @@ Browser ──> Next.js (port 3000)
               ├── /login          → GitHub OAuth sign-in
               ├── /api/auth/*     → better-auth (OAuth flow, sessions)
               ├── /api/*          → proxy to Express server
+              ├── /threads/[id]   → Interactive thread UI (WebSocket)
               ├── /board          → kanban board with GitHub import
               └── /onboarding     → repo selection + subscription setup
 
 Express Server (port 3001)
+              ├── WebSocket server (thread events, commands, approvals)
               ├── session middleware (validates better-auth cookies)
+              ├── ProviderService (Effect-TS, thread routing)
+              │     ├── ProviderAdapterRegistry
+              │     │     ├── ClaudeCodeAdapter (@anthropic-ai/claude-code)
+              │     │     └── CodexAdapter (stub)
+              │     └── Thread persistence (Prisma)
               ├── /api/github/*   → GitHub API (repos, issues, import, sync)
               ├── /api/settings/* → user settings CRUD
+              ├── /api/threads/*  → thread CRUD + turn management
               ├── /api/issues/*   → issue CRUD + dispatch
               ├── /api/runs/*     → run management
               └── Orchestrator    → auto-dispatch + GitHub sync
