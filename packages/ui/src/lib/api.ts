@@ -360,6 +360,58 @@ class PatchworkAPI {
   async health(): Promise<{ status: string; version: string }> {
     return request<{ status: string; version: string }>("/api/health");
   }
+
+  // ── Thread API ──────────────────────────────────────────────────
+  async listThreads(): Promise<any[]> {
+    return request<any[]>("/api/threads");
+  }
+
+  async getThread(id: string): Promise<any> {
+    return request<any>(`/api/threads/${id}`);
+  }
+
+  async createThread(data: {
+    title: string;
+    provider: string;
+    model?: string;
+    runtimeMode?: string;
+    workspacePath: string;
+    useSubscription?: boolean;
+    issueId?: string;
+  }): Promise<any> {
+    return request<any>("/api/threads", {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+  }
+
+  async sendTurn(threadId: string, text: string, model?: string): Promise<any> {
+    return request<any>(`/api/threads/${threadId}/turns`, {
+      method: "POST",
+      body: JSON.stringify({ text, model }),
+    });
+  }
+
+  async approveRequest(
+    threadId: string,
+    requestId: string,
+    decision: string,
+  ): Promise<any> {
+    return request<any>(`/api/threads/${threadId}/approve`, {
+      method: "POST",
+      body: JSON.stringify({ requestId, decision: { type: decision } }),
+    });
+  }
+
+  async stopThread(threadId: string): Promise<any> {
+    return request<any>(`/api/threads/${threadId}/stop`, { method: "POST" });
+  }
+
+  async interruptThread(threadId: string): Promise<any> {
+    return request<any>(`/api/threads/${threadId}/interrupt`, {
+      method: "POST",
+    });
+  }
 }
 
 export const api = new PatchworkAPI();

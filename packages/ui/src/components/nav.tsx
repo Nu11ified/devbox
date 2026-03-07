@@ -14,6 +14,7 @@ import {
   LogOut,
   ChevronDown,
   Github,
+  MessageSquare,
 } from "lucide-react";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
@@ -25,6 +26,7 @@ const mainLinks = [
   { href: "/board", label: "Board", icon: LayoutGrid },
   { href: "/runs", label: "Runs", icon: Play },
   { href: "/runs/new", label: "New Run", icon: PlusCircle },
+  { href: "/threads", label: "Threads", icon: MessageSquare },
   { href: "/templates", label: "Templates", icon: Box },
   { href: "/blueprints", label: "Blueprints", icon: Workflow },
 ];
