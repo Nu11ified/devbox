@@ -27,11 +27,15 @@ RUN cp packages/server/package.json /tmp/server-package.json && \
     sed -i '/"@patchwork\/shared"/d' /tmp/server-package.json && \
     mkdir -p /prod && \
     cp /tmp/server-package.json /prod/package.json && \
+    cp -r packages/server/prisma /prod/prisma && \
     cd /prod && \
-    bun install --production
+    bun install --production && \
+    bunx prisma generate
 
 # --- Runtime ---
 FROM oven/bun:1-slim
+
+RUN apt-get update -y && apt-get install -y openssl && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
