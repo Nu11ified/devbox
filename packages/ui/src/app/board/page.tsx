@@ -66,6 +66,7 @@ export default function BoardPage() {
     () => api.listIssues(),
     []
   );
+  const { data: repos } = useApi(() => api.listGitHubRepos(), []);
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [form, setForm] = useState<CreateIssueRequest>({
@@ -148,11 +149,21 @@ export default function BoardPage() {
               </div>
               <div className="space-y-2">
                 <Label>Repo</Label>
-                <Input
+                <Select
                   value={form.repo}
-                  onChange={(e) => setForm({ ...form, repo: e.target.value })}
-                  placeholder="owner/repo"
-                />
+                  onValueChange={(v) => setForm({ ...form, repo: v })}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select a repository" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {repos?.map((r: any) => (
+                      <SelectItem key={r.full_name} value={r.full_name}>
+                        {r.full_name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
               <div className="space-y-2">
                 <Label>Branch</Label>

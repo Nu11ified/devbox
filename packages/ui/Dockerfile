@@ -19,8 +19,14 @@ COPY packages/ui/ packages/ui/
 # Note: prisma generate must run from server dir where prisma is a devDep,
 # so bun resolves it from node_modules instead of trying npm auto-install
 RUN bun install && \
-    cd packages/server && bun run prisma generate && cd ../.. && \
-    bun run --filter @patchwork/shared build && \
+    cd packages/server && bun run prisma generate && cd ../..
+
+# API_SERVER_URL must be available at build time because Next.js standalone
+# bakes rewrites() into the route manifest during `next build`.
+ARG API_SERVER_URL=http://server:3001
+ENV API_SERVER_URL=${API_SERVER_URL}
+
+RUN bun run --filter @patchwork/shared build && \
     bun run --filter @patchwork/ui build
 
 # --- Runtime ---

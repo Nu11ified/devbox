@@ -1,7 +1,7 @@
 import { Router, type Router as RouterType } from "express";
 import prisma from "../db/prisma.js";
 import { insertIssue } from "../db/queries.js";
-import { listUserRepos, listRepoIssues } from "../github/client.js";
+import { listUserRepos, listRepoIssues, getAuthenticatedUser } from "../github/client.js";
 
 export const githubRouter: RouterType = Router();
 
@@ -11,6 +11,24 @@ async function getAccessToken(userId: string): Promise<string | null> {
   });
   return account?.accessToken ?? null;
 }
+
+// GET /api/github/user — get authenticated GitHub user profile
+githubRouter.get("/user", async (req, res) => {
+  const user = (req as any).user;
+  if (!user) {
+    res.status(401).json({ error: "Authentication required" });
+    return;
+  }
+
+  const token = await getAccessToken(user.id);
+  if (!token) {
+    res.status(400).json({ error: "No GitHub account linked" });
+    return;
+  }
+
+  const ghUser = await getAuthenticatedUser(token);
+  res.json(ghUser);
+});
 
 // GET /api/github/repos — list user's repos
 githubRouter.get("/repos", async (req, res) => {

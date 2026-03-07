@@ -89,6 +89,32 @@ export async function listRepoIssues(
   return issues;
 }
 
+export interface GitHubUser {
+  login: string;
+  name: string | null;
+  avatar_url: string;
+  html_url: string;
+}
+
+export async function getAuthenticatedUser(accessToken: string): Promise<GitHubUser> {
+  const cacheKey = `gh:user:${accessToken.slice(-8)}`;
+  const cached = await cacheGet<GitHubUser>(cacheKey);
+  if (cached) return cached;
+
+  const kit = octokit(accessToken);
+  const { data } = await kit.users.getAuthenticated();
+
+  const user: GitHubUser = {
+    login: data.login,
+    name: data.name ?? null,
+    avatar_url: data.avatar_url,
+    html_url: data.html_url,
+  };
+
+  await cacheSet(cacheKey, user, "medium");
+  return user;
+}
+
 export async function getIssue(
   accessToken: string,
   owner: string,

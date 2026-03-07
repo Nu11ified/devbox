@@ -17,6 +17,7 @@ import { settingsRouter } from "./api/settings.js";
 import { Orchestrator } from "./orchestrator/index.js";
 import { GitHubSyncJob } from "./github/sync.js";
 import { runMigration } from "./db/migrate.js";
+import { seedDefaultTemplate } from "./db/seed.js";
 import { ProviderAdapterRegistry, ProviderService, ClaudeCodeAdapter, CodexAdapter } from "./providers/index.js";
 import { threadsRouter } from "./api/threads.js";
 
@@ -65,6 +66,7 @@ const isMain =
 if (isMain) {
   (async () => {
     await runMigration();
+    await seedDefaultTemplate();
 
     const PORT = parseInt(process.env.PORT || "3001", 10);
     const { app, providerService } = createApp();

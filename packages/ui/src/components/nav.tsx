@@ -16,11 +16,12 @@ import {
   Github,
   MessageSquare,
 } from "lucide-react";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { signOut, useSession } from "@/lib/auth-client";
+import { api } from "@/lib/api";
 
 const mainLinks = [
   { href: "/board", label: "Board", icon: LayoutGrid },
@@ -43,6 +44,13 @@ export function Nav() {
   const { data: session } = useSession();
 
   const user = session?.user;
+  const [ghLogin, setGhLogin] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (user) {
+      api.getGitHubUser().then((u) => setGhLogin(u.login)).catch(() => {});
+    }
+  }, [user]);
 
   async function handleLogout() {
     await signOut({
@@ -163,7 +171,7 @@ export function Nav() {
                   </div>
                   <div className="py-1">
                     <a
-                      href={`https://github.com/${user?.name}`}
+                      href={`https://github.com/${ghLogin || user?.name}`}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="flex items-center gap-2 px-3 py-2 text-sm text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"

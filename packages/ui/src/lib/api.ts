@@ -295,6 +295,10 @@ class PatchworkAPI {
   }
 
   // GitHub
+  async getGitHubUser(): Promise<{ login: string; name: string | null; avatar_url: string; html_url: string }> {
+    return request("/api/github/user");
+  }
+
   async listGitHubRepos(): Promise<any[]> {
     return request<any[]>("/api/github/repos");
   }
