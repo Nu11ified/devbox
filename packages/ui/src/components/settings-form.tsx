@@ -15,6 +15,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
+import { Switch } from "@/components/ui/switch";
 
 type AgentPref = "auto" | "claude" | "codex" | "both";
 type RuntimeMode = "approval-required" | "full-access";
@@ -122,6 +123,11 @@ export function SettingsForm() {
   const [defaultRuntimeMode, setDefaultRuntimeMode] =
     useState<RuntimeMode>("approval-required");
 
+  // Subscription toggles (persisted server-side)
+  const [claudeSub, setClaudeSub] = useState(false);
+  const [openaiSub, setOpenaiSub] = useState(false);
+  const [subsLoaded, setSubsLoaded] = useState(false);
+
   useEffect(() => {
     const stored = localStorage.getItem("patchwork:agentPref");
     if (stored) setAgentPref(stored as AgentPref);
@@ -134,6 +140,13 @@ export function SettingsForm() {
     if (model) setDefaultModel(model);
     const mode = localStorage.getItem("patchwork:defaultRuntimeMode");
     if (mode) setDefaultRuntimeMode(mode as RuntimeMode);
+
+    // Load subscription settings from server
+    api.getSettings().then((s: any) => {
+      if (s.claudeSubscription != null) setClaudeSub(s.claudeSubscription);
+      if (s.openaiSubscription != null) setOpenaiSub(s.openaiSubscription);
+      setSubsLoaded(true);
+    }).catch(() => setSubsLoaded(true));
   }, []);
 
   const saveAgentPref = useCallback((v: AgentPref) => {
@@ -171,6 +184,16 @@ export function SettingsForm() {
     refetchAuth();
   }
 
+  async function handleClaudeSubToggle(checked: boolean) {
+    setClaudeSub(checked);
+    await api.updateSettings({ claudeSubscription: checked });
+  }
+
+  async function handleOpenaiSubToggle(checked: boolean) {
+    setOpenaiSub(checked);
+    await api.updateSettings({ openaiSubscription: checked });
+  }
+
   return (
     <div className="space-y-8">
       {/* Agent Credentials */}
@@ -197,6 +220,46 @@ export function SettingsForm() {
           onSave={handleSaveToken}
           onRemove={handleRemoveToken}
         />
+      </section>
+
+      <Separator />
+
+      {/* Agent Subscriptions */}
+      <section className="space-y-4">
+        <div>
+          <h2 className="text-lg font-semibold">Agent Subscriptions</h2>
+          <p className="text-sm text-muted-foreground">
+            Use your own subscriptions instead of API keys. When enabled, agents run with the <code className="text-xs px-1 py-0.5 bg-muted rounded font-mono">--subscription</code> flag.
+          </p>
+        </div>
+
+        <div className="flex items-center justify-between rounded-md border p-3">
+          <div>
+            <p className="text-sm font-medium">Claude subscription</p>
+            <p className="text-xs text-muted-foreground">
+              Use your Claude Max/Pro subscription instead of an API key.
+            </p>
+          </div>
+          <Switch
+            checked={claudeSub}
+            onCheckedChange={handleClaudeSubToggle}
+            disabled={!subsLoaded}
+          />
+        </div>
+
+        <div className="flex items-center justify-between rounded-md border p-3">
+          <div>
+            <p className="text-sm font-medium">OpenAI subscription</p>
+            <p className="text-xs text-muted-foreground">
+              Use your OpenAI Plus/Pro subscription instead of an API key.
+            </p>
+          </div>
+          <Switch
+            checked={openaiSub}
+            onCheckedChange={handleOpenaiSubToggle}
+            disabled={!subsLoaded}
+          />
+        </div>
       </section>
 
       <Separator />
