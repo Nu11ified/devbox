@@ -193,8 +193,12 @@ export class ProviderService {
         return yield* Effect.fail(new SessionNotFoundError({ threadId }));
       }
 
+      // Try to stop the adapter session, but don't fail if it's already gone
+      // (e.g. server restarted, process died). The DB cleanup below is what matters.
       const adapter = yield* self.registry.get(thread.provider as ProviderKind);
-      yield* adapter.stopSession(threadId);
+      yield* adapter.stopSession(threadId).pipe(
+        Effect.catchAll(() => Effect.void),
+      );
 
       yield* Effect.tryPromise({
         try: () =>
@@ -232,7 +236,9 @@ export class ProviderService {
       }
 
       const adapter = yield* self.registry.get(thread.provider as ProviderKind);
-      yield* adapter.interruptTurn(threadId);
+      yield* adapter.interruptTurn(threadId).pipe(
+        Effect.catchAll(() => Effect.void),
+      );
     });
   }
 

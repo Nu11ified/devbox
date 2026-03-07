@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
-import { Plus, MessageSquare, Loader2 } from "lucide-react";
+import { Plus, MessageSquare, Loader2, Trash2 } from "lucide-react";
 
 interface ThreadItem {
   id: string;
@@ -21,6 +21,7 @@ interface ThreadItem {
 export default function ThreadsPage() {
   const [threads, setThreads] = useState<ThreadItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [deleting, setDeleting] = useState<string | null>(null);
 
   useEffect(() => {
     api.listThreads()
@@ -28,6 +29,24 @@ export default function ThreadsPage() {
       .catch(console.error)
       .finally(() => setLoading(false));
   }, []);
+
+  async function handleDelete(e: React.MouseEvent, threadId: string) {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!confirm("Delete this thread?")) return;
+
+    setDeleting(threadId);
+    try {
+      // Stop the thread first if it's active (ignore errors)
+      await api.stopThread(threadId).catch(() => {});
+      await api.deleteThread(threadId);
+      setThreads((prev) => prev.filter((t) => t.id !== threadId));
+    } catch (err: any) {
+      console.error("Failed to delete thread:", err);
+    } finally {
+      setDeleting(null);
+    }
+  }
 
   return (
     <div className="max-w-3xl mx-auto py-8 px-4">
@@ -59,7 +78,7 @@ export default function ThreadsPage() {
               className="block border rounded-lg p-3 hover:bg-muted/30 transition-colors"
             >
               <div className="flex items-center justify-between">
-                <div className="min-w-0">
+                <div className="min-w-0 flex-1">
                   <p className="text-sm font-medium truncate">{thread.title}</p>
                   <div className="flex items-center gap-2 mt-1">
                     <span className="text-[10px] font-mono text-muted-foreground/60">
@@ -75,15 +94,29 @@ export default function ThreadsPage() {
                     </span>
                   </div>
                 </div>
-                <span
-                  className={`text-[10px] font-mono px-1.5 py-0.5 rounded ${
-                    thread.status === "active"
-                      ? "bg-green-500/10 text-green-500"
-                      : "bg-muted text-muted-foreground/60"
-                  }`}
-                >
-                  {thread.status}
-                </span>
+                <div className="flex items-center gap-2 ml-3">
+                  <span
+                    className={`text-[10px] font-mono px-1.5 py-0.5 rounded ${
+                      thread.status === "active"
+                        ? "bg-green-500/10 text-green-500"
+                        : "bg-muted text-muted-foreground/60"
+                    }`}
+                  >
+                    {thread.status}
+                  </span>
+                  <button
+                    onClick={(e) => handleDelete(e, thread.id)}
+                    disabled={deleting === thread.id}
+                    className="p-1 rounded hover:bg-destructive/10 text-muted-foreground/40 hover:text-destructive transition-colors"
+                    title="Delete thread"
+                  >
+                    {deleting === thread.id ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <Trash2 className="h-3.5 w-3.5" />
+                    )}
+                  </button>
+                </div>
               </div>
             </Link>
           ))}

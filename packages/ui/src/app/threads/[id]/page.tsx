@@ -1,15 +1,16 @@
 "use client";
 
 import { useEffect, useState, useCallback, useRef } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { api } from "@/lib/api";
 import { useThreadSocket, type ThreadEvent } from "@/hooks/use-thread-socket";
 import { Timeline, type TimelineItem } from "@/components/thread/timeline";
 import { Composer } from "@/components/thread/composer";
-import { Loader2 } from "lucide-react";
+import { Loader2, Trash2, Square } from "lucide-react";
 
 export default function ThreadDetailPage() {
   const { id } = useParams<{ id: string }>();
+  const router = useRouter();
   const [thread, setThread] = useState<any>(null);
   const [items, setItems] = useState<TimelineItem[]>([]);
   const [running, setRunning] = useState(false);
@@ -185,6 +186,27 @@ export default function ThreadDetailPage() {
     [sendTurn]
   );
 
+  async function handleForceStop() {
+    if (!id) return;
+    try {
+      await api.stopThread(id);
+      setRunning(false);
+    } catch (err) {
+      console.error("Failed to stop:", err);
+    }
+  }
+
+  async function handleDelete() {
+    if (!id || !confirm("Delete this thread?")) return;
+    try {
+      await api.stopThread(id).catch(() => {});
+      await api.deleteThread(id);
+      router.push("/threads");
+    } catch (err) {
+      console.error("Failed to delete:", err);
+    }
+  }
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-screen">
@@ -210,6 +232,23 @@ export default function ThreadDetailPage() {
           )}
         </div>
         <div className="flex items-center gap-2">
+          {running && (
+            <button
+              onClick={handleForceStop}
+              className="flex items-center gap-1 px-2 py-1 rounded text-[10px] font-mono text-amber-500 hover:bg-amber-500/10 transition-colors"
+              title="Force stop session"
+            >
+              <Square className="h-3 w-3" />
+              Stop
+            </button>
+          )}
+          <button
+            onClick={handleDelete}
+            className="flex items-center gap-1 px-2 py-1 rounded text-[10px] font-mono text-muted-foreground/50 hover:text-destructive hover:bg-destructive/10 transition-colors"
+            title="Delete thread"
+          >
+            <Trash2 className="h-3 w-3" />
+          </button>
           <span className={`w-2 h-2 rounded-full ${connected ? "bg-green-500" : "bg-amber-500 animate-pulse"}`} />
           <span className="text-[10px] text-muted-foreground/60">
             {connected ? "Connected" : "Reconnecting..."}

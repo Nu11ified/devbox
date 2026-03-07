@@ -416,6 +416,12 @@ class PatchworkAPI {
       method: "POST",
     });
   }
+
+  async deleteThread(threadId: string): Promise<void> {
+    return request<void>(`/api/threads/${threadId}`, {
+      method: "DELETE",
+    });
+  }
 }
 
 export const api = new PatchworkAPI();
