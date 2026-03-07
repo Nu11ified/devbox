@@ -16,8 +16,10 @@ import { settingsRouter } from "./api/settings.js";
 import { Orchestrator } from "./orchestrator/index.js";
 import { GitHubSyncJob } from "./github/sync.js";
 import { runMigration } from "./db/migrate.js";
+import { ProviderAdapterRegistry, ProviderService, ClaudeCodeAdapter } from "./providers/index.js";
+import { threadsRouter } from "./api/threads.js";
 
-export function createApp(): express.Express {
+export function createApp(): { app: express.Express; providerService: ProviderService } {
   const app = express();
 
   // Try session auth first (better-auth), fall through to basic auth
@@ -29,6 +31,11 @@ export function createApp(): express.Express {
   const encKeyHex = process.env.PATCHWORK_ENCRYPTION_KEY;
   const encKey = encKeyHex ? Buffer.from(encKeyHex, "hex") : randomBytes(32);
   const authProxy = new AuthProxy(encKey);
+
+  // Provider adapter system
+  const adapterRegistry = new ProviderAdapterRegistry();
+  adapterRegistry.register(new ClaudeCodeAdapter());
+  const providerService = new ProviderService(adapterRegistry);
 
   app.get("/api/health", (_req, res) => {
     res.json({ status: "ok", version: "0.1.0" });
@@ -42,8 +49,9 @@ export function createApp(): express.Express {
   app.use("/api/auth", authRouter(authProxy));
   app.use("/api/github", githubRouter);
   app.use("/api/settings", settingsRouter);
+  app.use("/api/threads", threadsRouter(providerService));
 
-  return app;
+  return { app, providerService };
 }
 
 // Start server when run directly
@@ -57,7 +65,7 @@ if (isMain) {
     await runMigration();
 
     const PORT = parseInt(process.env.PORT || "3001", 10);
-    const app = createApp();
+    const { app, providerService } = createApp();
     const server = createServer(app);
 
     setupWebSocket(server);
