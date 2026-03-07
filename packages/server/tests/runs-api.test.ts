@@ -86,7 +86,7 @@ describe("Runs API", () => {
   let app: Express;
 
   beforeEach(() => {
-    app = createApp();
+    ({ app } = createApp());
   });
 
   describe("POST /api/runs", () => {

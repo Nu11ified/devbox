@@ -8,7 +8,7 @@ const DATABASE_URL =
   "postgresql://patchwork:patchwork@localhost:5433/patchwork";
 
 describe("Devbox Templates CRUD", () => {
-  let app: ReturnType<typeof createApp>;
+  let app: ReturnType<typeof createApp>["app"];
   let client: pg.Client;
 
   const validTemplate = {
@@ -22,7 +22,7 @@ describe("Devbox Templates CRUD", () => {
     const { runMigration } = await import("../src/db/migrate.js");
     await runMigration(DATABASE_URL);
 
-    app = createApp();
+    ({ app } = createApp());
     client = new pg.Client({ connectionString: DATABASE_URL });
     await client.connect();
 

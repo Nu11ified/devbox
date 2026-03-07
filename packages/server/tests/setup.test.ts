@@ -10,7 +10,7 @@ const DATABASE_URL =
 describe("Server setup", () => {
   describe("GET /api/health", () => {
     it("returns status ok with version", async () => {
-      const app = createApp();
+      const { app } = createApp();
       const res = await request(app).get("/api/health");
       expect(res.status).toBe(200);
       expect(res.body.status).toBe("ok");
