@@ -150,21 +150,24 @@ describe("Threads API", () => {
       expect(execFileSync).not.toHaveBeenCalled();
     });
 
-    it("creates thread with repo+branch — clones and creates devbox", async () => {
+    it("creates thread with repo+branch — creates devbox then clones inside it", async () => {
       const res = await request(app)
         .post("/api/threads")
         .send({ title: "Repo Thread", provider: "claudeCode", repo: "owner/repo", branch: "dev" });
 
       expect(res.status).toBe(201);
-      expect(execFileSync).toHaveBeenCalledTimes(1);
-      const cloneArgs = (execFileSync as any).mock.calls[0];
-      expect(cloneArgs[0]).toBe("git");
-      expect(cloneArgs[1]).toContain("clone");
-      expect(cloneArgs[1]).toContain("dev");
 
-      // DevboxManager.create should be called
+      // DevboxManager.create should be called first
       const dmInstance = mockDevboxInstance;
       expect(dmInstance.create).toHaveBeenCalledTimes(1);
+
+      // Git clone runs inside the container, not on the host
+      expect(execFileSync).not.toHaveBeenCalled();
+      expect(dmInstance.runInContainer).toHaveBeenCalledTimes(1);
+      const cloneArgs = dmInstance.runInContainer.mock.calls[0];
+      expect(cloneArgs[0]).toBe("ctr-123");
+      expect(cloneArgs[1]).toContain("clone");
+      expect(cloneArgs[1]).toContain("dev");
 
       // providerService.createThread should receive devboxId
       const callArg = (mockPS.createThread as any).mock.calls[0][0];
@@ -200,9 +203,9 @@ describe("Threads API", () => {
         .post("/api/threads")
         .send({ title: "Token Clone", provider: "claudeCode", repo: "owner/repo" });
 
-      const cloneArgs = (execFileSync as any).mock.calls[0][1] as string[];
-      const cloneUrl = cloneArgs[cloneArgs.length - 1]; // last arg is the dir, second to last is url
-      // The URL is in position after "--single-branch"
+      // Clone runs inside the container
+      const dmInstance = mockDevboxInstance;
+      const cloneArgs = dmInstance.runInContainer.mock.calls[0][1] as string[];
       const urlArg = cloneArgs.find((a: string) => a.includes("github.com"));
       expect(urlArg).toContain("x-access-token:ghp_tok123");
     });

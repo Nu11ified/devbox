@@ -84,25 +84,21 @@ export function threadsRouter(providerService: ProviderService): Router {
       let resolvedWorkspacePath = workspacePath || "/workspace";
       let devboxId: string | undefined;
 
-      // If repo is provided, clone it and spawn a devbox
+      // If repo is provided, spawn a devbox and clone inside it
       if (repo) {
         const threadTempId = crypto.randomUUID();
         const threadDir = `${THREADS_DIR}/${threadTempId}`;
         if (!existsSync(THREADS_DIR)) {
           mkdirSync(THREADS_DIR, { recursive: true });
         }
+        mkdirSync(threadDir, { recursive: true });
 
         const gitBranch = branch || "main";
         const cloneUrl = githubToken
           ? `https://x-access-token:${githubToken}@github.com/${repo}.git`
           : `https://github.com/${repo}.git`;
 
-        execFileSync(
-          "git",
-          ["clone", "--branch", gitBranch, "--single-branch", cloneUrl, threadDir],
-          { stdio: "pipe", timeout: 120_000 }
-        );
-
+        // Create devbox first, then clone inside it (git may not be on the host)
         const devbox = await devboxManager.create({
           image: "patchwork-node:latest",
           name: `patchwork-thread-${threadTempId.slice(0, 8)}`,
@@ -112,6 +108,15 @@ export function threadsRouter(providerService: ProviderService): Router {
             ...(apiKey ? { ANTHROPIC_API_KEY: apiKey } : {}),
           },
         });
+
+        const cloneResult = await devboxManager.runInContainer(devbox.containerId, [
+          "git", "clone", "--branch", gitBranch, "--single-branch", cloneUrl, "/workspace",
+        ]);
+        if (cloneResult.exitCode !== 0) {
+          await devboxManager.destroy(devbox.containerId).catch(() => {});
+          throw new Error(`git clone failed: ${cloneResult.stderr}`);
+        }
+
         devboxId = devbox.containerId;
         resolvedWorkspacePath = "/workspace";
       }
