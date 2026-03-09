@@ -52,7 +52,7 @@ export function createApp(): { app: express.Express; providerService: ProviderSe
   app.use("/api/auth", authRouter(authProxy));
   app.use("/api/github", githubRouter);
   app.use("/api/settings", settingsRouter);
-  app.use("/api/threads", threadsRouter(providerService));
+  app.use("/api/threads", threadsRouter(providerService, authProxy));
 
   return { app, providerService };
 }

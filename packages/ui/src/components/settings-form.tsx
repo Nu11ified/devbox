@@ -141,10 +141,23 @@ export function SettingsForm() {
     const mode = localStorage.getItem("patchwork:defaultRuntimeMode");
     if (mode) setDefaultRuntimeMode(mode as RuntimeMode);
 
-    // Load subscription settings from server
+    // Load subscription + provider settings from server
     api.getSettings().then((s: any) => {
       if (s.claudeSubscription != null) setClaudeSub(s.claudeSubscription);
       if (s.openaiSubscription != null) setOpenaiSub(s.openaiSubscription);
+      // Sync server defaults → localStorage (server is source of truth)
+      if (s.defaultProvider) {
+        setDefaultProvider(s.defaultProvider);
+        localStorage.setItem("patchwork:defaultProvider", s.defaultProvider);
+      }
+      if (s.defaultModel) {
+        setDefaultModel(s.defaultModel);
+        localStorage.setItem("patchwork:defaultModel", s.defaultModel);
+      }
+      if (s.defaultRuntimeMode) {
+        setDefaultRuntimeMode(s.defaultRuntimeMode);
+        localStorage.setItem("patchwork:defaultRuntimeMode", s.defaultRuntimeMode);
+      }
       setSubsLoaded(true);
     }).catch(() => setSubsLoaded(true));
   }, []);
@@ -162,16 +175,19 @@ export function SettingsForm() {
   const saveDefaultProvider = useCallback((v: string) => {
     setDefaultProvider(v);
     localStorage.setItem("patchwork:defaultProvider", v);
+    api.updateSettings({ defaultProvider: v });
   }, []);
 
   const saveDefaultModel = useCallback((v: string) => {
     setDefaultModel(v);
     localStorage.setItem("patchwork:defaultModel", v);
+    api.updateSettings({ defaultModel: v });
   }, []);
 
   const saveDefaultRuntimeMode = useCallback((v: RuntimeMode) => {
     setDefaultRuntimeMode(v);
     localStorage.setItem("patchwork:defaultRuntimeMode", v);
+    api.updateSettings({ defaultRuntimeMode: v });
   }, []);
 
   async function handleSaveToken(provider: "claude" | "codex", token: string) {

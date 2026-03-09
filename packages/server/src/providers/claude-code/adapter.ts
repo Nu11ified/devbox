@@ -226,7 +226,9 @@ export class ClaudeCodeAdapter implements ProviderAdapterShape {
     const isFullAccess = state.session.runtimeMode === "full-access";
 
     const env: Record<string, string> = {};
-    if (state.session.apiKey) {
+    // Only set API key if NOT using subscription mode.
+    // Without ANTHROPIC_API_KEY, the CLI falls back to OAuth/subscription auth.
+    if (state.session.apiKey && !state.session.useSubscription) {
       env.ANTHROPIC_API_KEY = state.session.apiKey;
     }
     if (state.session.githubToken) {

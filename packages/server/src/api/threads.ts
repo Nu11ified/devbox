@@ -7,12 +7,13 @@ import type { ProviderService } from "../providers/service.js";
 import { ThreadId } from "../providers/types.js";
 import type { ProviderKind } from "../providers/types.js";
 import { DevboxManager } from "../devbox/manager.js";
+import type { AuthProxy } from "../auth/proxy.js";
 import { Octokit } from "@octokit/rest";
 
 const THREADS_DIR = "/data/patchwork/threads";
 const devboxManager = new DevboxManager();
 
-export function threadsRouter(providerService: ProviderService): Router {
+export function threadsRouter(providerService: ProviderService, authProxy?: AuthProxy): Router {
   const router = Router();
 
   // List threads for current user
@@ -68,12 +69,22 @@ export function threadsRouter(providerService: ProviderService): Router {
       let apiKey: string | undefined;
       let githubToken: string | undefined;
 
+      // Resolve API key: AuthProxy token → UserSettings DB key → env fallback
+      if (authProxy) {
+        const proxyProvider = provider === "claudeCode" ? "claude" : "codex";
+        const proxyToken = await authProxy.getToken(proxyProvider as "claude" | "codex");
+        if (proxyToken) apiKey = proxyToken;
+      }
+
       if (userId) {
         const settings = await prisma.userSettings.findUnique({ where: { userId } });
         if (!useSubscription && provider === "claudeCode" && settings?.claudeSubscription) {
           subscription = true;
         }
-        apiKey = settings?.anthropicApiKey ?? undefined;
+        // Only fall back to DB key if AuthProxy didn't have one
+        if (!apiKey) {
+          apiKey = settings?.anthropicApiKey ?? undefined;
+        }
 
         const account = await prisma.account.findFirst({
           where: { userId, providerId: "github" },
