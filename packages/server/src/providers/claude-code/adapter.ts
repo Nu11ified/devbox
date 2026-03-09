@@ -229,11 +229,21 @@ export class ClaudeCodeAdapter implements ProviderAdapterShape {
     const threadId = state.session.threadId;
     const isFullAccess = state.session.runtimeMode === "full-access";
 
-    const env: Record<string, string> = {};
+    // Start with process.env so the CLI inherits PATH, HOME, CLAUDE_CONFIG_DIR, etc.
+    // The SDK uses `options.env ?? process.env` — if we pass env, it fully replaces
+    // process.env, so we must spread it first.
+    const env: Record<string, string> = {
+      ...Object.fromEntries(
+        Object.entries(process.env).filter((e): e is [string, string] => e[1] != null)
+      ),
+    };
     // Only set API key if NOT using subscription mode.
     // Without ANTHROPIC_API_KEY, the CLI falls back to OAuth/subscription auth.
     if (state.session.apiKey && !state.session.useSubscription) {
       env.ANTHROPIC_API_KEY = state.session.apiKey;
+    } else {
+      // In subscription mode, ensure no API key overrides OAuth auth
+      delete env.ANTHROPIC_API_KEY;
     }
     if (state.session.githubToken) {
       env.GITHUB_TOKEN = state.session.githubToken;
