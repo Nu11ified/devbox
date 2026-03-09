@@ -249,11 +249,16 @@ export class ClaudeCodeAdapter implements ProviderAdapterShape {
       env.GITHUB_TOKEN = state.session.githubToken;
     }
 
+    // bypassPermissions is blocked when running as root (security check in CLI).
+    // Fall back to plan mode with all tools allowed instead.
+    const isRoot = process.getuid?.() === 0;
+    const canBypass = isFullAccess && !isRoot;
+
     const opts: Record<string, unknown> = {
       model: model ?? state.session.model ?? "claude-sonnet-4-6",
       cwd: state.session.workspacePath || "/workspace",
-      permissionMode: isFullAccess ? "bypassPermissions" : "default",
-      allowDangerouslySkipPermissions: isFullAccess,
+      permissionMode: canBypass ? "bypassPermissions" : "default",
+      allowDangerouslySkipPermissions: canBypass,
       maxTurns: 50,
       abortController: state.abortController,
       env,
