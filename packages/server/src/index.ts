@@ -10,6 +10,7 @@ import { authRouter } from "./api/auth.js";
 import { setupWebSocket } from "./api/ws.js";
 import { setupThreadWebSocket } from "./api/thread-ws.js";
 import { AuthProxy } from "./auth/proxy.js";
+import { issueWsTicket } from "./auth/ws-tickets.js";
 import { basicAuth } from "./auth/basic.js";
 import { sessionAuth } from "./auth/session-middleware.js";
 import { githubRouter } from "./api/github.js";
@@ -42,6 +43,17 @@ export function createApp(): { app: express.Express; providerService: ProviderSe
 
   app.get("/api/health", (_req, res) => {
     res.json({ status: "ok", version: "0.1.0" });
+  });
+
+  // Issue short-lived WebSocket tickets for cross-origin connections
+  app.post("/api/ws-ticket", (req, res) => {
+    const user = (req as any).user;
+    if (!user) {
+      res.status(401).json({ error: "Authentication required" });
+      return;
+    }
+    const ticket = issueWsTicket(user.id);
+    res.json({ ticket });
   });
 
   app.use("/api/templates", templatesRouter);

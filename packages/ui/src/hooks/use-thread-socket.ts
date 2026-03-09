@@ -21,16 +21,28 @@ interface UseThreadSocketOptions {
  * Resolve WebSocket URL.
  * Falls back to same origin (routed to server via Traefik PathPrefix /ws).
  */
-function getWsUrl(threadId: string): string {
-  // Use NEXT_PUBLIC_WS_URL if baked in at build time, otherwise derive from
-  // the page origin. In production behind a reverse proxy, the /ws path on
-  // the same domain is routed to the server via Traefik PathPrefix.
+function getWsUrl(threadId: string, ticket?: string): string {
+  const params = new URLSearchParams({ threadId });
+  if (ticket) params.set("ticket", ticket);
+
   const wsUrl = process.env.NEXT_PUBLIC_WS_URL;
   if (wsUrl) {
-    return `${wsUrl}/ws/threads?threadId=${encodeURIComponent(threadId)}`;
+    return `${wsUrl}/ws/threads?${params}`;
   }
   const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
-  return `${proto}//${window.location.host}/ws/threads?threadId=${encodeURIComponent(threadId)}`;
+  return `${proto}//${window.location.host}/ws/threads?${params}`;
+}
+
+/** True when WS URL points to a different origin (cross-origin needs a ticket). */
+function isCrossOriginWs(): boolean {
+  const wsUrl = process.env.NEXT_PUBLIC_WS_URL;
+  if (!wsUrl) return false;
+  try {
+    const wsOrigin = new URL(wsUrl.replace(/^ws/, "http")).origin;
+    return wsOrigin !== window.location.origin;
+  } catch {
+    return false;
+  }
 }
 
 export function useThreadSocket({ threadId, onEvent }: UseThreadSocketOptions) {
@@ -47,10 +59,25 @@ export function useThreadSocket({ threadId, onEvent }: UseThreadSocketOptions) {
 
     let disposed = false;
 
-    function connect() {
+    async function connect() {
       if (disposed) return;
 
-      const wsUrl = getWsUrl(threadId!);
+      // For cross-origin WS, get a short-lived ticket from the server
+      let ticket: string | undefined;
+      if (isCrossOriginWs()) {
+        try {
+          ticket = await api.getWsTicket();
+        } catch {
+          // Retry after delay if ticket fetch fails
+          if (!disposed) {
+            reconnectTimer.current = setTimeout(connect, 3000);
+          }
+          return;
+        }
+        if (disposed) return;
+      }
+
+      const wsUrl = getWsUrl(threadId!, ticket);
       const ws = new WebSocket(wsUrl);
       wsRef.current = ws;
 
@@ -81,7 +108,7 @@ export function useThreadSocket({ threadId, onEvent }: UseThreadSocketOptions) {
       };
     }
 
-    connect();
+    void connect();
 
     return () => {
       disposed = true;

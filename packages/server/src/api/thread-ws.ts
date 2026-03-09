@@ -5,6 +5,7 @@ import type { ProviderService } from "../providers/service.js";
 import { ThreadId } from "../providers/types.js";
 import type { ProviderEventEnvelope } from "../providers/events.js";
 import prisma from "../db/prisma.js";
+import { consumeWsTicket } from "../auth/ws-tickets.js";
 
 interface ThreadConnection {
   ws: WebSocket;
@@ -56,33 +57,43 @@ export function setupThreadWebSocket(
       return;
     }
 
-    // Authenticate via session cookie
-    const cookieHeader = req.headers.cookie ?? "";
-    const cookies = Object.fromEntries(
-      cookieHeader.split(";").map((c) => {
-        const [key, ...rest] = c.trim().split("=");
-        return [key, rest.join("=")];
-      })
-    );
-    const sessionToken = cookies["better-auth.session_token"] ?? cookies["__Secure-better-auth.session_token"];
+    // Authenticate via ticket (cross-origin) or session cookie (same-origin)
+    let authedUserId: string | null = null;
 
-    if (!sessionToken) {
+    const ticket = url.searchParams.get("ticket");
+    if (ticket) {
+      authedUserId = consumeWsTicket(ticket);
+    }
+
+    if (!authedUserId) {
+      // Fall back to session cookie
+      const cookieHeader = req.headers.cookie ?? "";
+      const cookies = Object.fromEntries(
+        cookieHeader.split(";").map((c) => {
+          const [key, ...rest] = c.trim().split("=");
+          return [key, rest.join("=")];
+        })
+      );
+      const sessionToken = cookies["better-auth.session_token"] ?? cookies["__Secure-better-auth.session_token"];
+
+      if (sessionToken) {
+        const session = await prisma.session.findUnique({
+          where: { token: sessionToken },
+          include: { user: true },
+        });
+        if (session && session.expiresAt >= new Date()) {
+          authedUserId = session.user.id;
+        }
+      }
+    }
+
+    if (!authedUserId) {
       ws.close(4001, "Authentication required");
       return;
     }
 
-    const session = await prisma.session.findUnique({
-      where: { token: sessionToken },
-      include: { user: true },
-    });
-
-    if (!session || session.expiresAt < new Date()) {
-      ws.close(4001, "Session expired");
-      return;
-    }
-
     // Verify ownership
-    if (thread.userId && thread.userId !== session.user.id) {
+    if (thread.userId && thread.userId !== authedUserId) {
       ws.close(4003, "Not authorized");
       return;
     }

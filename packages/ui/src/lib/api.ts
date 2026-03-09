@@ -430,6 +430,13 @@ class PatchworkAPI {
       method: "DELETE",
     });
   }
+
+  async getWsTicket(): Promise<string> {
+    const res = await request<{ ticket: string }>("/api/ws-ticket", {
+      method: "POST",
+    });
+    return res.ticket;
+  }
 }
 
 export const api = new PatchworkAPI();
