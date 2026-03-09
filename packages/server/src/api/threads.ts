@@ -10,7 +10,7 @@ import { DevboxManager } from "../devbox/manager.js";
 import type { AuthProxy } from "../auth/proxy.js";
 import { Octokit } from "@octokit/rest";
 
-const THREADS_DIR = "/data/patchwork/threads";
+const THREADS_DIR = process.env.THREADS_DIR || "/data/patchwork/threads";
 const devboxManager = new DevboxManager();
 
 export function threadsRouter(providerService: ProviderService, authProxy?: AuthProxy): Router {
@@ -109,7 +109,7 @@ export function threadsRouter(providerService: ProviderService, authProxy?: Auth
       }
       let devboxId: string | undefined;
 
-      // If repo is provided, clone it — via devbox container or directly on host
+      // If repo is provided, clone it into a unique per-thread directory
       if (repo) {
         const threadTempId = crypto.randomUUID();
         const gitBranch = branch || "main";
@@ -117,16 +117,17 @@ export function threadsRouter(providerService: ProviderService, authProxy?: Auth
           ? `https://x-access-token:${githubToken}@github.com/${repo}.git`
           : `https://github.com/${repo}.git`;
 
+        // Create a unique workspace directory on the host for this thread
+        const threadDir = `${THREADS_DIR}/${threadTempId}`;
+        if (!existsSync(THREADS_DIR)) {
+          mkdirSync(THREADS_DIR, { recursive: true });
+        }
+        mkdirSync(threadDir, { recursive: true });
+
         let clonedViaDevbox = false;
 
         // Try devbox container first (production path)
         try {
-          const threadDir = `${THREADS_DIR}/${threadTempId}`;
-          if (!existsSync(THREADS_DIR)) {
-            mkdirSync(THREADS_DIR, { recursive: true });
-          }
-          mkdirSync(threadDir, { recursive: true });
-
           const devbox = await devboxManager.create({
             image: "patchwork-node:latest",
             name: `patchwork-thread-${threadTempId.slice(0, 8)}`,
@@ -146,7 +147,6 @@ export function threadsRouter(providerService: ProviderService, authProxy?: Auth
           }
 
           devboxId = devbox.containerId;
-          resolvedWorkspacePath = "/workspace";
           clonedViaDevbox = true;
         } catch (devboxErr: any) {
           console.log(`[threads] Devbox unavailable (${devboxErr.message}), cloning on host`);
@@ -155,15 +155,21 @@ export function threadsRouter(providerService: ProviderService, authProxy?: Auth
         // Fallback: clone directly on the host (local dev without Docker)
         if (!clonedViaDevbox) {
           try {
+            // threadDir exists but is empty — git clone populates it
             execFileSync("git", [
               "clone", "--branch", gitBranch, "--single-branch",
-              cloneUrl, resolvedWorkspacePath,
+              cloneUrl, threadDir,
             ], { stdio: "pipe", timeout: 60000 });
-            console.log(`[threads] Cloned ${repo}@${gitBranch} into ${resolvedWorkspacePath}`);
+            console.log(`[threads] Cloned ${repo}@${gitBranch} into ${threadDir}`);
           } catch (cloneErr: any) {
+            // Clean up empty dir on failure
+            rmSync(threadDir, { recursive: true, force: true });
             throw new Error(`git clone failed: ${cloneErr.stderr?.toString() || cloneErr.message}`);
           }
         }
+
+        // Always use the host path — Agent SDK and PTY run on the host
+        resolvedWorkspacePath = threadDir;
       }
 
       const result = await Effect.runPromise(
