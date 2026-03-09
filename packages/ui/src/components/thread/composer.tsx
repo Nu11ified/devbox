@@ -17,8 +17,8 @@ interface ComposerProps {
 
 const MODELS: Record<string, Array<{ id: string; label: string }>> = {
   claudeCode: [
-    { id: "claude-sonnet-4-6", label: "Sonnet 4.6" },
     { id: "claude-opus-4-6", label: "Opus 4.6" },
+    { id: "claude-sonnet-4-6", label: "Sonnet 4.6" },
     { id: "claude-haiku-4-5-20251001", label: "Haiku 4.5" },
   ],
   codex: [

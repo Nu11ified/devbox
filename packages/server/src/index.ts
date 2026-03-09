@@ -21,6 +21,8 @@ import { runMigration } from "./db/migrate.js";
 import { seedDefaultTemplate } from "./db/seed.js";
 import { ProviderAdapterRegistry, ProviderService, ClaudeCodeAdapter, CodexAdapter } from "./providers/index.js";
 import { threadsRouter } from "./api/threads.js";
+import { pluginsRouter } from "./api/plugins.js";
+import { seedPlugins } from "./db/seed-plugins.js";
 
 export function createApp(): { app: express.Express; providerService: ProviderService } {
   const app = express();
@@ -65,6 +67,7 @@ export function createApp(): { app: express.Express; providerService: ProviderSe
   app.use("/api/github", githubRouter);
   app.use("/api/settings", settingsRouter);
   app.use("/api/threads", threadsRouter(providerService, authProxy));
+  app.use("/api/plugins", pluginsRouter());
 
   return { app, providerService };
 }
@@ -79,6 +82,7 @@ if (isMain) {
   (async () => {
     await runMigration();
     await seedDefaultTemplate();
+    await seedPlugins();
 
     const PORT = parseInt(process.env.PORT || "3001", 10);
     const { app, providerService } = createApp();

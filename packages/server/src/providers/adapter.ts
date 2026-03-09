@@ -26,6 +26,7 @@ export interface SessionStartInput {
   resumeCursor?: unknown;
   repo?: string;
   branch?: string;
+  userId?: string;
 }
 
 export interface SendTurnInput {

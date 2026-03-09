@@ -15,6 +15,7 @@ import {
   ChevronDown,
   Github,
   MessageSquare,
+  Puzzle,
 } from "lucide-react";
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
@@ -28,6 +29,7 @@ const mainLinks = [
   { href: "/runs", label: "Runs", icon: Play },
   { href: "/runs/new", label: "New Run", icon: PlusCircle },
   { href: "/threads", label: "Threads", icon: MessageSquare },
+  { href: "/plugins", label: "Plugins", icon: Puzzle },
   { href: "/templates", label: "Templates", icon: Box },
   { href: "/blueprints", label: "Blueprints", icon: Workflow },
 ];

@@ -166,7 +166,7 @@ export default function NewThreadPage() {
                 id="model"
                 value={model}
                 onChange={(e) => setModel(e.target.value)}
-                placeholder="claude-sonnet-4-6"
+                placeholder="claude-opus-4-6"
               />
               <p className="text-[10px] text-muted-foreground/50">
                 Leave empty for default model.

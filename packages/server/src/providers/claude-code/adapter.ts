@@ -1,7 +1,9 @@
 import { Effect, Stream, Queue, Deferred } from "effect";
 import { randomUUID } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+import prisma from "../../db/prisma.js";
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import { parseDiff } from "./parse-diff.js";
 import type {
@@ -36,6 +38,7 @@ interface SessionState {
     useSubscription?: boolean;
     githubToken?: string;
     workspacePath?: string;
+    userId?: string;
   };
   abortController: AbortController;
   pendingRequests: Map<string, PendingRequest>;
@@ -100,13 +103,14 @@ export class ClaudeCodeAdapter implements ProviderAdapterShape {
         threadId: input.threadId,
         provider: "claudeCode",
         sessionId,
-        model: input.model ?? "claude-sonnet-4-6",
+        model: input.model ?? "claude-opus-4-6",
         runtimeMode: input.runtimeMode,
         resumeCursor: input.resumeCursor,
         apiKey: input.apiKey,
         useSubscription: input.useSubscription,
         githubToken: input.githubToken,
         workspacePath: input.workspacePath,
+        userId: input.userId,
       };
 
       const state: SessionState = {
@@ -224,6 +228,54 @@ export class ClaudeCodeAdapter implements ProviderAdapterShape {
     });
   }
 
+  private async writePluginInstructions(cwd: string, userId?: string): Promise<void> {
+    if (!userId) return;
+    try {
+      const installed = await prisma.installedPlugin.findMany({
+        where: { userId },
+        include: { plugin: true },
+      });
+      if (installed.length === 0) return;
+
+      const sections = installed
+        .filter((ip) => ip.plugin.instructions)
+        .map((ip) => ip.plugin.instructions!);
+
+      if (sections.length === 0) return;
+
+      const claudeMd = `# Installed Plugins\n\n${sections.join("\n\n---\n\n")}\n`;
+
+      // Read existing CLAUDE.md if present and preserve user content
+      const claudeMdPath = join(cwd, "CLAUDE.md");
+      let existingContent = "";
+      try {
+        existingContent = readFileSync(claudeMdPath, "utf-8");
+      } catch {
+        // No existing CLAUDE.md
+      }
+
+      // Replace the managed plugin section, or append
+      const MARKER_START = "<!-- PATCHWORK_PLUGINS_START -->";
+      const MARKER_END = "<!-- PATCHWORK_PLUGINS_END -->";
+      const pluginBlock = `${MARKER_START}\n${claudeMd}\n${MARKER_END}`;
+
+      if (existingContent.includes(MARKER_START)) {
+        const before = existingContent.slice(0, existingContent.indexOf(MARKER_START));
+        const afterIdx = existingContent.indexOf(MARKER_END);
+        const after = afterIdx >= 0 ? existingContent.slice(afterIdx + MARKER_END.length) : "";
+        writeFileSync(claudeMdPath, before + pluginBlock + after);
+      } else if (existingContent) {
+        writeFileSync(claudeMdPath, existingContent + "\n\n" + pluginBlock);
+      } else {
+        writeFileSync(claudeMdPath, pluginBlock);
+      }
+
+      console.log(`[claude-adapter] Wrote ${installed.length} plugin instructions to ${claudeMdPath}`);
+    } catch (err: any) {
+      console.error("[claude-adapter] Failed to write plugin instructions:", err.message);
+    }
+  }
+
   private async runAgentQuery(
     state: SessionState,
     text: string,
@@ -258,8 +310,11 @@ export class ClaudeCodeAdapter implements ProviderAdapterShape {
       mkdirSync(cwd, { recursive: true });
     }
 
+    // Write installed plugin instructions to CLAUDE.md in the workspace
+    await this.writePluginInstructions(cwd, state.session.userId);
+
     const opts: Record<string, unknown> = {
-      model: model ?? state.session.model ?? "claude-sonnet-4-6",
+      model: model ?? state.session.model ?? "claude-opus-4-6",
       cwd,
       permissionMode: canBypass ? "bypassPermissions" : "plan",
       allowDangerouslySkipPermissions: canBypass,

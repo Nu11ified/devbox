@@ -192,11 +192,12 @@ model User {
   createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz
   updatedAt     DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  sessions Session[]
-  accounts Account[]
-  settings UserSettings?
-  issues   Issue[]
-  threads  Thread[]
+  sessions         Session[]
+  accounts         Account[]
+  settings         UserSettings?
+  issues           Issue[]
+  threads          Thread[]
+  installedPlugins InstalledPlugin[]
 
   @@map("user")
 }
@@ -340,4 +341,43 @@ model ThreadEvent {
 
   @@index([threadId, sequence])
   @@map("thread_events")
+}
+
+// ─── Plugin marketplace ─────────────────────────────────────────
+
+model Plugin {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  slug         String   @unique
+  name         String
+  description  String
+  author       String   @default("Patchwork")
+  category     String   @default("general")
+  icon         String?
+  tags         Json     @default("[]")
+  instructions String?  @db.Text
+  mcpServers   Json     @default("{}") @map("mcp_servers")
+  hooks        Json     @default("[]")
+  tools        Json     @default("[]")
+  version      String   @default("1.0.0")
+  builtIn      Boolean  @default(true) @map("built_in")
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt    DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  installedBy InstalledPlugin[]
+
+  @@map("plugins")
+}
+
+model InstalledPlugin {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId    String   @map("user_id")
+  pluginId  String   @map("plugin_id") @db.Uuid
+  config    Json     @default("{}")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  user   User   @relation(fields: [userId], references: [id])
+  plugin Plugin @relation(fields: [pluginId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, pluginId])
+  @@map("installed_plugins")
 }

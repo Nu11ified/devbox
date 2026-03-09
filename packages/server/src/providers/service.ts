@@ -88,6 +88,7 @@ export class ProviderService {
         githubToken: input.githubToken,
         repo: input.repo,
         branch: input.branch,
+        userId: input.userId,
       });
 
       yield* Effect.tryPromise({

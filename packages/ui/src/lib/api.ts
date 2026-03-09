@@ -127,6 +127,29 @@ export interface CreateIssueRequest {
 export type Template = DevboxTemplate;
 export type Blueprint = BlueprintDefinition;
 
+export interface PluginItem {
+  id: string;
+  slug: string;
+  name: string;
+  description: string;
+  author: string;
+  category: string;
+  icon: string | null;
+  tags: string[];
+  version: string;
+  builtIn: boolean;
+  installCount: number;
+  installed: boolean;
+  installedAt: string | null;
+}
+
+export interface PluginDetail extends PluginItem {
+  instructions: string | null;
+  mcpServers: Record<string, unknown>;
+  hooks: unknown[];
+  tools: unknown[];
+}
+
 // ── API Client ─────────────────────────────────────────────────────
 
 // API requests are proxied through Next.js rewrites (same origin, no CORS)
@@ -436,6 +459,31 @@ class PatchworkAPI {
       method: "POST",
     });
     return res.ticket;
+  }
+
+  // ── Plugins API ──────────────────────────────────────────────────
+  async listPlugins(): Promise<PluginItem[]> {
+    return request<PluginItem[]>("/api/plugins");
+  }
+
+  async getPlugin(id: string): Promise<PluginDetail> {
+    return request<PluginDetail>(`/api/plugins/${id}`);
+  }
+
+  async getInstalledPlugins(): Promise<PluginItem[]> {
+    return request<PluginItem[]>("/api/plugins/user/installed");
+  }
+
+  async installPlugin(id: string): Promise<{ ok: boolean }> {
+    return request<{ ok: boolean }>(`/api/plugins/${id}/install`, {
+      method: "POST",
+    });
+  }
+
+  async uninstallPlugin(id: string): Promise<{ ok: boolean }> {
+    return request<{ ok: boolean }>(`/api/plugins/${id}/install`, {
+      method: "DELETE",
+    });
   }
 }
 
