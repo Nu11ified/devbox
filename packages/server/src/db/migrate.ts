@@ -61,15 +61,17 @@ export async function runMigration(
     });
     console.log("Prisma migration complete");
   } catch {
-    // If no migrations exist yet (first deploy), run db push as fallback
-    console.log("No Prisma migrations found, using db push...");
-    execFileSync("bunx", ["prisma", "db", "push", "--accept-data-loss"], {
-      env,
-      stdio: "inherit",
-      cwd,
-    });
-    console.log("Prisma db push complete");
+    console.log("Prisma migrate deploy failed or no migrations found");
   }
+
+  // Always run db push to ensure schema is in sync (handles fresh DBs
+  // where migrate deploy exits 0 with "no pending migrations")
+  execFileSync("bunx", ["prisma", "db", "push", "--accept-data-loss"], {
+    env,
+    stdio: "inherit",
+    cwd,
+  });
+  console.log("Prisma db push complete");
 }
 
 // Run directly via: npx tsx src/db/migrate.ts
