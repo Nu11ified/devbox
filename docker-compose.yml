@@ -49,6 +49,8 @@ services:
     build:
       context: .
       dockerfile: packages/ui/Dockerfile
+      args:
+        NEXT_PUBLIC_WS_URL: ${NEXT_PUBLIC_WS_URL:-}
     restart: unless-stopped
     depends_on:
       - server

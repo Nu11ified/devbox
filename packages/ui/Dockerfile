@@ -26,6 +26,12 @@ RUN bun install && \
 ARG API_SERVER_URL=http://server:3001
 ENV API_SERVER_URL=${API_SERVER_URL}
 
+# NEXT_PUBLIC_WS_URL is inlined by Next.js at build time (DefinePlugin).
+# Points to the server's WebSocket endpoint when the UI is behind a
+# reverse proxy that cannot route /ws to the server.
+ARG NEXT_PUBLIC_WS_URL
+ENV NEXT_PUBLIC_WS_URL=${NEXT_PUBLIC_WS_URL}
+
 RUN bun run --filter @patchwork/shared build && \
     bun run --filter @patchwork/ui build
 
