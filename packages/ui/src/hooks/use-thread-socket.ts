@@ -19,19 +19,18 @@ interface UseThreadSocketOptions {
 
 /**
  * Resolve WebSocket URL.
- * NEXT_PUBLIC_SERVER_URL is the backend origin (e.g. "http://server:3001").
- * Falls back to same hostname, port 3001.
+ * Falls back to same origin (routed to server via Traefik PathPrefix /ws).
  */
 function getWsUrl(threadId: string): string {
-  const envUrl = process.env.NEXT_PUBLIC_SERVER_URL;
-  if (envUrl) {
-    const url = new URL(envUrl);
-    const wsProto = url.protocol === "https:" ? "wss:" : "ws:";
-    return `${wsProto}//${url.host}/ws/threads?threadId=${encodeURIComponent(threadId)}`;
+  // Use NEXT_PUBLIC_WS_URL if baked in at build time, otherwise derive from
+  // the page origin. In production behind a reverse proxy, the /ws path on
+  // the same domain is routed to the server via Traefik PathPrefix.
+  const wsUrl = process.env.NEXT_PUBLIC_WS_URL;
+  if (wsUrl) {
+    return `${wsUrl}/ws/threads?threadId=${encodeURIComponent(threadId)}`;
   }
-  // Fallback: same hostname, server port (3001)
   const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
-  return `${proto}//${window.location.hostname}:3001/ws/threads?threadId=${encodeURIComponent(threadId)}`;
+  return `${proto}//${window.location.host}/ws/threads?threadId=${encodeURIComponent(threadId)}`;
 }
 
 export function useThreadSocket({ threadId, onEvent }: UseThreadSocketOptions) {

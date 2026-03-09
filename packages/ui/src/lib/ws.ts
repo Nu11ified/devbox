@@ -3,7 +3,7 @@ import type { TranscriptEvent } from "./api";
 const WS_BASE =
   process.env.NEXT_PUBLIC_WS_URL ||
   (typeof window !== "undefined"
-    ? `ws://${window.location.hostname}:3001`
+    ? `${window.location.protocol === "https:" ? "wss:" : "ws:"}//${window.location.host}`
     : "ws://localhost:3001");
 
 export function connectRunStream(
