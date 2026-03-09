@@ -10,6 +10,7 @@ import { consumeWsTicket } from "../auth/ws-tickets.js";
 interface ThreadConnection {
   ws: WebSocket;
   threadId: string;
+  userId: string;
 }
 
 export function setupThreadWebSocket(
@@ -98,7 +99,9 @@ export function setupThreadWebSocket(
       return;
     }
 
-    const conn: ThreadConnection = { ws, threadId };
+    console.log(`[thread-ws] Client connected: thread=${threadId} user=${authedUserId}`);
+
+    const conn: ThreadConnection = { ws, threadId, userId: authedUserId };
     if (!connections.has(threadId)) {
       connections.set(threadId, new Set());
     }
@@ -118,8 +121,10 @@ export function setupThreadWebSocket(
     ws.on("message", async (raw) => {
       try {
         const message = JSON.parse(String(raw));
-        await handleCommand(message, threadId, providerService, ws);
+        console.log(`[thread-ws] Command: ${message.type} thread=${threadId}`);
+        await handleCommand(message, threadId, authedUserId!, providerService, ws);
       } catch (err: any) {
+        console.error(`[thread-ws] Command error thread=${threadId}:`, err.message ?? err);
         ws.send(
           JSON.stringify({
             type: "thread.error",
@@ -130,6 +135,7 @@ export function setupThreadWebSocket(
     });
 
     ws.on("close", () => {
+      console.log(`[thread-ws] Client disconnected: thread=${threadId}`);
       connections.get(threadId)?.delete(conn);
       if (connections.get(threadId)?.size === 0) {
         connections.delete(threadId);
@@ -138,9 +144,23 @@ export function setupThreadWebSocket(
   });
 }
 
+async function resolveUserCredentials(userId: string) {
+  const settings = await prisma.userSettings.findUnique({ where: { userId } });
+  const account = await prisma.account.findFirst({
+    where: { userId, providerId: "github" },
+  });
+
+  return {
+    apiKey: settings?.anthropicApiKey ?? undefined,
+    useSubscription: settings?.claudeSubscription ?? false,
+    githubToken: account?.accessToken ?? undefined,
+  };
+}
+
 async function handleCommand(
   message: any,
   threadId: string,
+  userId: string,
   providerService: ProviderService,
   ws: WebSocket
 ): Promise<void> {
@@ -148,6 +168,12 @@ async function handleCommand(
 
   switch (message.type) {
     case "thread.sendTurn": {
+      // Ensure session is active (auto-restart if lost)
+      const creds = await resolveUserCredentials(userId);
+      await Effect.runPromise(
+        providerService.ensureSession(tid, creds)
+      );
+
       const result = await Effect.runPromise(
         providerService.sendTurn({
           threadId: tid,
@@ -156,6 +182,7 @@ async function handleCommand(
           attachments: message.attachments,
         })
       );
+      console.log(`[thread-ws] Turn started: thread=${threadId} turn=${result.turnId}`);
       ws.send(JSON.stringify({ type: "thread.turn.started", turnId: result.turnId }));
       break;
     }

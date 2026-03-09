@@ -62,6 +62,9 @@ export interface ProviderAdapterShape {
   readonly provider: ProviderKind;
   readonly capabilities: ProviderCapabilities;
 
+  /** Check if an active in-memory session exists for this thread. */
+  hasSession(threadId: ThreadId): boolean;
+
   startSession(input: SessionStartInput): Effect.Effect<ProviderSession, AdapterError>;
   stopSession(threadId: ThreadId): Effect.Effect<void, AdapterError>;
   stopAll(): Effect.Effect<void, AdapterError>;

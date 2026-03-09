@@ -210,6 +210,15 @@ export default function ThreadDetailPage() {
     if (event.type === "thread.session.status") {
       setRunning(event.status === "active");
     }
+
+    // Handle direct WS errors (e.g. session not found, command failures)
+    if (event.type === "thread.error") {
+      setItems((prev) => [
+        ...prev,
+        { id: `error-${Date.now()}`, kind: "error", content: event.error ?? "Unknown error" },
+      ]);
+      setRunning(false);
+    }
   }, []);
 
   const { connected, sendTurn, interrupt, approve, stop } = useThreadSocket({

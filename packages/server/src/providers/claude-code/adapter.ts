@@ -53,6 +53,10 @@ export class ClaudeCodeAdapter implements ProviderAdapterShape {
   private sessions = new Map<string, SessionState>();
   private eventQueue: Queue.Queue<ProviderEventEnvelope>;
 
+  hasSession(threadId: ThreadId): boolean {
+    return this.sessions.has(threadId as string);
+  }
+
   constructor() {
     this.eventQueue = Effect.runSync(Queue.unbounded<ProviderEventEnvelope>());
   }
@@ -256,11 +260,15 @@ export class ClaudeCodeAdapter implements ProviderAdapterShape {
       opts.resume = state.session.resumeCursor;
     }
 
+    console.log(`[claude-adapter] Starting query: model=${opts.model} cwd=${opts.cwd} permissionMode=${opts.permissionMode}`);
+
     const q = query({ prompt: text, options: opts as any });
     state.activeQuery = q;
 
     try {
       for await (const message of q) {
+        console.log(`[claude-adapter] SDK message: type=${message.type} subtype=${(message as any).subtype ?? "none"}`);
+
         const envelopes = this.mapSDKMessage(message, threadId, turnId);
         for (const env of envelopes) {
           await this.enqueue(env);
@@ -300,6 +308,7 @@ export class ClaudeCodeAdapter implements ProviderAdapterShape {
     } catch (err: any) {
       if (err?.name === "AbortError") return;
 
+      console.error(`[claude-adapter] Query error for thread=${threadId}:`, err?.message ?? err);
       await this.enqueue(
         this.makeEnvelope("runtime.error", threadId, {
           message: err?.message ?? String(err),

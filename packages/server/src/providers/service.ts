@@ -18,6 +18,12 @@ import {
 } from "./types.js";
 import type { ProviderKind, AdapterError } from "./types.js";
 
+interface EnsureSessionOpts {
+  apiKey?: string;
+  githubToken?: string;
+  useSubscription?: boolean;
+}
+
 export class ProviderService {
   private sequenceCounters = new Map<string, number>();
 
@@ -109,6 +115,73 @@ export class ProviderService {
       });
 
       return { thread, session };
+    });
+  }
+
+  /**
+   * Ensure an active in-memory session exists for the thread.
+   * If the session was lost (e.g. server restart, manual stop), re-create it
+   * from the thread's DB config.
+   */
+  ensureSession(
+    threadId: ThreadId,
+    opts?: EnsureSessionOpts,
+  ): Effect.Effect<void, AdapterError> {
+    const self = this;
+    return Effect.gen(function* () {
+      const thread = yield* Effect.tryPromise({
+        try: () => prisma.thread.findUnique({ where: { id: threadId as string } }),
+        catch: (e) =>
+          new ValidationError({ message: `Failed to find thread: ${e}` }),
+      });
+
+      if (!thread) {
+        return yield* Effect.fail(new SessionNotFoundError({ threadId }));
+      }
+
+      const adapter = yield* self.registry.get(thread.provider as ProviderKind);
+
+      // Already has an active in-memory session — nothing to do
+      if (adapter.hasSession(threadId)) return;
+
+      console.log(`[provider] Restarting session for thread ${threadId}`);
+
+      yield* adapter.startSession({
+        threadId,
+        provider: thread.provider as ProviderKind,
+        model: thread.model ?? undefined,
+        runtimeMode: (thread.runtimeMode as "approval-required" | "full-access") ?? "approval-required",
+        workspacePath: thread.workspacePath ?? "/workspace",
+        useSubscription: opts?.useSubscription ?? false,
+        apiKey: opts?.apiKey,
+        githubToken: opts?.githubToken,
+        repo: thread.repo ?? undefined,
+        branch: thread.branch ?? undefined,
+      });
+
+      // Update DB status
+      yield* Effect.tryPromise({
+        try: () =>
+          prisma.thread.update({
+            where: { id: threadId as string },
+            data: { status: "active" },
+          }),
+        catch: (e) =>
+          new ValidationError({ message: `Failed to update thread: ${e}` }),
+      });
+
+      yield* Effect.tryPromise({
+        try: () =>
+          prisma.threadSession.create({
+            data: {
+              threadId: threadId as string,
+              provider: thread.provider,
+              model: thread.model,
+              status: "active",
+            },
+          }),
+        catch: () => new ValidationError({ message: "session record" }),
+      }).pipe(Effect.catchAll(() => Effect.void));
     });
   }
 

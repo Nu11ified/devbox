@@ -22,6 +22,10 @@ export class CodexAdapter implements ProviderAdapterShape {
     supportsResume: false,
   };
 
+  hasSession(_threadId: import("../types.js").ThreadId): boolean {
+    return false;
+  }
+
   startSession(_input: SessionStartInput): Effect.Effect<ProviderSession, AdapterError> {
     return Effect.fail(
       new ValidationError({ message: "Codex adapter not yet implemented" })
