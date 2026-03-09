@@ -365,11 +365,11 @@ export class ProviderService {
       // Accumulate assistant text content
       if (
         envelope.type === "content.delta" &&
-        envelope.turnId &&
-        envelope.payload?.kind === "text" &&
-        envelope.payload?.delta
+        envelope.turnId
       ) {
-        const delta = envelope.payload.delta as string;
+        const p = envelope.payload as { kind?: string; delta?: string };
+        if (p.kind !== "text" || !p.delta) return;
+        const delta = p.delta;
         const threadId = envelope.threadId as string;
         const turnId = envelope.turnId as string;
         yield* Effect.tryPromise({
