@@ -16,6 +16,7 @@ COPY packages/server/src packages/server/src
 COPY packages/server/prisma packages/server/prisma
 
 # Install dependencies, generate Prisma client, and build
+# cache-bust: 2026-03-09
 RUN bun install && \
     cd packages/server && bun run prisma generate && cd ../.. && \
     bun run --filter @patchwork/shared build && \
