@@ -7,6 +7,10 @@
 # --- Stage 1: Build the sidecar ---
 FROM oven/bun:1 AS builder
 
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends python3 make g++ && \
+    rm -rf /var/lib/apt/lists/*
+
 WORKDIR /build
 
 # Copy root workspace files
@@ -15,7 +19,7 @@ COPY packages/sidecar/package.json packages/sidecar/tsconfig.json packages/sidec
 COPY packages/sidecar/src packages/sidecar/src
 
 # Install dependencies and build sidecar
-RUN bun install --frozen-lockfile && \
+RUN bun install && \
     bun run --filter @patchwork/sidecar build
 
 # --- Stage 2: Runtime image ---
