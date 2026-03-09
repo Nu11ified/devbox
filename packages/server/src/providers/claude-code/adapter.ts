@@ -360,20 +360,22 @@ export class ClaudeCodeAdapter implements ProviderAdapterShape {
         }
       }
     } else if (message.type === "result") {
-      if (message.subtype === "success") {
+      if (message.is_error || message.subtype?.startsWith("error")) {
+        // Handle errors — even when subtype is "success", is_error can be true
+        const errorMsg = message.result ?? message.errors?.join("; ") ?? message.subtype ?? "Unknown error";
+        console.error(`[claude-adapter] Result error for thread=${threadId}: ${errorMsg}`);
+        envelopes.push(
+          this.makeEnvelope("runtime.error", threadId, {
+            message: errorMsg,
+            recoverable: true,
+          }, turnId, message)
+        );
+      } else if (message.subtype === "success") {
         envelopes.push(
           this.makeEnvelope("session.configured", threadId, {
             sessionId: message.session_id,
             totalCostUsd: message.total_cost_usd,
             usage: message.usage,
-          }, turnId, message)
-        );
-      } else if (message.subtype?.startsWith("error")) {
-        const errorMsg = message.errors?.join("; ") ?? message.subtype;
-        envelopes.push(
-          this.makeEnvelope("runtime.error", threadId, {
-            message: errorMsg,
-            recoverable: true,
           }, turnId, message)
         );
       }
