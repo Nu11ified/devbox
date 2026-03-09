@@ -1,6 +1,7 @@
 import { Effect, Stream, Queue, Deferred } from "effect";
 import { randomUUID } from "node:crypto";
 import { execFileSync } from "node:child_process";
+import { existsSync, mkdirSync } from "node:fs";
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import { parseDiff } from "./parse-diff.js";
 import type {
@@ -254,9 +255,14 @@ export class ClaudeCodeAdapter implements ProviderAdapterShape {
     const isRoot = process.getuid?.() === 0;
     const canBypass = isFullAccess && !isRoot;
 
+    const cwd = state.session.workspacePath || "/workspace";
+    if (!existsSync(cwd)) {
+      mkdirSync(cwd, { recursive: true });
+    }
+
     const opts: Record<string, unknown> = {
       model: model ?? state.session.model ?? "claude-sonnet-4-6",
-      cwd: state.session.workspacePath || "/workspace",
+      cwd,
       permissionMode: canBypass ? "bypassPermissions" : "default",
       allowDangerouslySkipPermissions: canBypass,
       maxTurns: 50,
