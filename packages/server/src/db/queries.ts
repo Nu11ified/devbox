@@ -5,11 +5,32 @@ const DATABASE_URL =
   process.env.DATABASE_URL ||
   "postgresql://patchwork:patchwork@localhost:5433/patchwork";
 
+function parseDbConfig(dbUrl: string): pg.PoolConfig {
+  try {
+    new URL(dbUrl);
+    return { connectionString: dbUrl };
+  } catch {
+    const match = dbUrl.match(
+      /^postgresql:\/\/([^:]+):(.+)@([^:\/]+):?(\d+)?\/(.+)$/
+    );
+    if (match) {
+      return {
+        user: match[1],
+        password: match[2],
+        host: match[3],
+        port: match[4] ? parseInt(match[4], 10) : 5432,
+        database: match[5],
+      };
+    }
+    return { connectionString: dbUrl };
+  }
+}
+
 let pool: pg.Pool | null = null;
 
 export function getPool(): pg.Pool {
   if (!pool) {
-    pool = new pg.Pool({ connectionString: DATABASE_URL });
+    pool = new pg.Pool(parseDbConfig(DATABASE_URL));
   }
   return pool;
 }

@@ -10,8 +10,32 @@ export async function runMigration(
 ): Promise<void> {
   const url = databaseUrl || process.env.DATABASE_URL || DEFAULT_DATABASE_URL;
 
+  // Build connection config — use individual params to avoid URL-encoding issues
+  // when passwords contain special characters like + or /
+  function parseDbConfig(dbUrl: string): pg.ClientConfig {
+    try {
+      new URL(dbUrl);
+      return { connectionString: dbUrl };
+    } catch {
+      // URL parsing failed (special chars in password) — extract parts manually
+      const match = dbUrl.match(
+        /^postgresql:\/\/([^:]+):(.+)@([^:\/]+):?(\d+)?\/(.+)$/
+      );
+      if (match) {
+        return {
+          user: match[1],
+          password: match[2],
+          host: match[3],
+          port: match[4] ? parseInt(match[4], 10) : 5432,
+          database: match[5],
+        };
+      }
+      return { connectionString: dbUrl };
+    }
+  }
+
   // 1. Ensure issue_seq exists (Prisma can't manage sequences)
-  const client = new pg.Client({ connectionString: url });
+  const client = new pg.Client(parseDbConfig(url));
   try {
     await client.connect();
     await client.query(`
