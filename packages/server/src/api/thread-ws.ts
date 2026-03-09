@@ -6,6 +6,8 @@ import { ThreadId } from "../providers/types.js";
 import type { ProviderEventEnvelope } from "../providers/events.js";
 import prisma from "../db/prisma.js";
 import { consumeWsTicket } from "../auth/ws-tickets.js";
+import { ptyManager } from "../terminal/pty-manager.js";
+import { randomUUID } from "node:crypto";
 
 interface ThreadConnection {
   ws: WebSocket;
@@ -122,7 +124,7 @@ export function setupThreadWebSocket(
       try {
         const message = JSON.parse(String(raw));
         console.log(`[thread-ws] Command: ${message.type} thread=${threadId}`);
-        await handleCommand(message, threadId, authedUserId!, providerService, ws);
+        await handleCommand(message, threadId, authedUserId!, providerService, ws, connections);
       } catch (err: any) {
         console.error(`[thread-ws] Command error thread=${threadId}:`, err.message ?? err);
         ws.send(
@@ -162,7 +164,8 @@ async function handleCommand(
   threadId: string,
   userId: string,
   providerService: ProviderService,
-  ws: WebSocket
+  ws: WebSocket,
+  connections: Map<string, Set<ThreadConnection>>
 ): Promise<void> {
   const tid = ThreadId(threadId);
 
@@ -212,6 +215,94 @@ async function handleCommand(
           status: "idle",
         })
       );
+      break;
+    }
+
+    case "thread.terminal.start": {
+      // Check if this thread already has a PTY session
+      let session = ptyManager.getForThread(threadId);
+      if (session) {
+        ws.send(JSON.stringify({
+          type: "thread.terminal.started",
+          sessionId: session.id,
+        }));
+        // Send a newline to trigger a fresh prompt for the reconnecting client
+        ptyManager.write(session.id, "\n");
+        return;
+      }
+
+      // Look up thread to determine workspace path
+      const termThread = await prisma.thread.findUnique({ where: { id: threadId } });
+      const cwd = termThread?.workspacePath ?? process.env.HOME ?? "/";
+      const sessionId = `pty-${randomUUID()}`;
+
+      session = ptyManager.start({
+        sessionId,
+        threadId,
+        cols: message.cols ?? 120,
+        rows: message.rows ?? 30,
+        cwd,
+      });
+
+      // Wire PTY output to all WebSocket clients for this thread
+      session.emitter.on("data", (data: string) => {
+        const conns = connections.get(threadId);
+        if (!conns) return;
+        const payload = JSON.stringify({
+          type: "thread.terminal.output",
+          sessionId,
+          data,
+        });
+        for (const c of conns) {
+          if (c.ws.readyState === WebSocket.OPEN) {
+            c.ws.send(payload);
+          }
+        }
+      });
+
+      session.emitter.on("exit", ({ exitCode }: { exitCode: number }) => {
+        const conns = connections.get(threadId);
+        if (!conns) return;
+        const payload = JSON.stringify({
+          type: "thread.terminal.exited",
+          sessionId,
+          exitCode,
+        });
+        for (const c of conns) {
+          if (c.ws.readyState === WebSocket.OPEN) {
+            c.ws.send(payload);
+          }
+        }
+      });
+
+      ws.send(JSON.stringify({
+        type: "thread.terminal.started",
+        sessionId,
+      }));
+      console.log(`[thread-ws] PTY started: thread=${threadId} session=${sessionId}`);
+      break;
+    }
+
+    case "thread.terminal.input": {
+      if (!message.data) break;
+      ptyManager.write(message.sessionId, message.data);
+      break;
+    }
+
+    case "thread.terminal.resize": {
+      if (message.cols && message.rows) {
+        ptyManager.resize(message.sessionId, message.cols, message.rows);
+      }
+      break;
+    }
+
+    case "thread.terminal.stop": {
+      const killed = ptyManager.kill(message.sessionId);
+      ws.send(JSON.stringify({
+        type: "thread.terminal.exited",
+        sessionId: message.sessionId,
+        exitCode: killed ? 0 : -1,
+      }));
       break;
     }
 

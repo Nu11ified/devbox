@@ -8,7 +8,7 @@ import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
 import { Timeline, type TimelineItem } from "@/components/thread/timeline";
 import { Composer } from "@/components/thread/composer";
 import { DiffPanel } from "@/components/thread/diff-panel";
-import { TerminalDrawer } from "@/components/thread/terminal-drawer";
+import { TerminalDrawer, type TerminalDrawerHandle } from "@/components/thread/terminal-drawer";
 import { Loader2, Trash2, Square, GitCompareArrows, TerminalIcon, GitPullRequest, Zap } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ErrorBoundary } from "@/components/error-boundary";
@@ -32,9 +32,8 @@ export default function ThreadDetailPage() {
       }>;
     }>
   >([]);
-  const [terminalLines, setTerminalLines] = useState<
-    Array<{ id: string; content: string; timestamp: number }>
-  >([]);
+  const [terminalSessionId, setTerminalSessionId] = useState<string | null>(null);
+  const terminalDrawerRef = useRef<TerminalDrawerHandle>(null);
   const assistantTextRef = useRef<string>("");
   const assistantItemIdRef = useRef<string | null>(null);
 
@@ -133,19 +132,6 @@ export default function ThreadDetailPage() {
               completed: false,
             },
           ]);
-          if (e.payload.toolCategory === "command_execution") {
-            const cmd = typeof e.payload.input === "object" && e.payload.input?.command
-              ? String(e.payload.input.command)
-              : JSON.stringify(e.payload.input ?? "");
-            setTerminalLines((prev) => [
-              ...prev,
-              {
-                id: e.payload.itemId,
-                content: `$ ${cmd}`,
-                timestamp: Date.now(),
-              },
-            ]);
-          }
           break;
         }
 
@@ -157,15 +143,6 @@ export default function ThreadDetailPage() {
                 : i
             )
           );
-          if (e.payload.toolCategory === "command_execution" && e.payload.output) {
-            setTerminalLines((prev) =>
-              prev.map((line) =>
-                line.id === e.payload.itemId
-                  ? { ...line, content: `${line.content}\n${e.payload.output}` }
-                  : line
-              )
-            );
-          }
           break;
         }
 
@@ -218,6 +195,19 @@ export default function ThreadDetailPage() {
       }
     }
 
+    if (event.type === "thread.terminal.started") {
+      setTerminalSessionId(event.sessionId ?? null);
+    }
+
+    if (event.type === "thread.terminal.output") {
+      // Write directly to xterm via ref — bypasses React state for performance
+      terminalDrawerRef.current?.write(event.data ?? "");
+    }
+
+    if (event.type === "thread.terminal.exited") {
+      setTerminalSessionId(null);
+    }
+
     if (event.type === "thread.error") {
       setItems((prev) => [
         ...prev,
@@ -227,7 +217,7 @@ export default function ThreadDetailPage() {
     }
   }, []);
 
-  const { connected, sendTurn, interrupt, approve, stop } = useThreadSocket({
+  const { connected, sendTurn, interrupt, approve, stop, send } = useThreadSocket({
     threadId: id,
     onEvent: handleEvent,
   });
@@ -433,9 +423,12 @@ export default function ThreadDetailPage() {
       </div>
 
       <TerminalDrawer
-        lines={terminalLines}
+        ref={terminalDrawerRef}
+        sendTerminal={send}
+        connected={connected}
         open={showTerminal}
         onToggle={() => setShowTerminal((v) => !v)}
+        sessionId={terminalSessionId}
       />
     </div>
     </ErrorBoundary>

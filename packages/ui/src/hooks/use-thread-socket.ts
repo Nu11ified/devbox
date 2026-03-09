@@ -10,6 +10,10 @@ export interface ThreadEvent {
   status?: string;
   error?: string;
   turnId?: string;
+  /** Terminal events */
+  sessionId?: string;
+  data?: string;
+  exitCode?: number;
 }
 
 interface UseThreadSocketOptions {
