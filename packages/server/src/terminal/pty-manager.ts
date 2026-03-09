@@ -1,16 +1,16 @@
 import { EventEmitter } from "node:events";
-import type { Subprocess } from "bun";
+import { spawn, type ChildProcess } from "node:child_process";
 
 export interface PtySession {
   id: string;
-  proc: Subprocess;
+  proc: ChildProcess;
   threadId: string;
   emitter: EventEmitter;
 }
 
 /**
  * Manages PTY sessions using `script -qc` to allocate real pseudo-terminals.
- * Works with Bun runtime (node-pty requires Node.js native addons).
+ * Uses Node.js child_process.spawn for compatibility with both Bun and Node.js.
  */
 export class PtyManager {
   private sessions = new Map<string, PtySession>();
@@ -31,10 +31,8 @@ export class PtyManager {
     const rows = opts.rows ?? 30;
 
     // Use `script -qc` to allocate a real PTY that supports tmux, colors, etc.
-    const proc = Bun.spawn(["script", "-qc", `${shell} --login`, "/dev/null"], {
-      stdin: "pipe",
-      stdout: "pipe",
-      stderr: "pipe",
+    const proc = spawn("script", ["-qc", `${shell} --login`, "/dev/null"], {
+      stdio: ["pipe", "pipe", "pipe"],
       cwd: opts.cwd ?? process.env.HOME ?? "/",
       env: {
         ...process.env,
@@ -42,43 +40,31 @@ export class PtyManager {
         COLORTERM: "truecolor",
         COLUMNS: String(cols),
         LINES: String(rows),
-      } as Record<string, string>,
+      },
     });
 
     const emitter = new EventEmitter();
-    const decoder = new TextDecoder();
 
     // Stream stdout to emitter
-    (async () => {
-      try {
-        const reader = proc.stdout.getReader();
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          const text = decoder.decode(value);
-          emitter.emit("data", text);
-        }
-      } catch {
-        // Process ended
-      }
-      emitter.emit("exit", { exitCode: proc.exitCode ?? 0, signal: 0 });
-      this.sessions.delete(opts.sessionId);
-    })();
+    proc.stdout?.on("data", (chunk: Buffer) => {
+      emitter.emit("data", chunk.toString());
+    });
 
     // Also capture stderr (some shells send prompt there)
-    (async () => {
-      try {
-        const reader = proc.stderr.getReader();
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          const text = decoder.decode(value);
-          emitter.emit("data", text);
-        }
-      } catch {
-        // Process ended
-      }
-    })();
+    proc.stderr?.on("data", (chunk: Buffer) => {
+      emitter.emit("data", chunk.toString());
+    });
+
+    proc.on("exit", (code, signal) => {
+      emitter.emit("exit", { exitCode: code ?? 0, signal: signal ?? 0 });
+      this.sessions.delete(opts.sessionId);
+    });
+
+    proc.on("error", (err) => {
+      console.error(`[pty-manager] Process error for ${opts.sessionId}:`, err.message);
+      emitter.emit("exit", { exitCode: 1, signal: 0 });
+      this.sessions.delete(opts.sessionId);
+    });
 
     const session: PtySession = {
       id: opts.sessionId,
@@ -94,7 +80,7 @@ export class PtyManager {
     const session = this.sessions.get(sessionId);
     if (!session) return false;
     try {
-      session.proc.stdin.write(data);
+      session.proc.stdin?.write(data);
       return true;
     } catch {
       return false;
