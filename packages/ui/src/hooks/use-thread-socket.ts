@@ -53,6 +53,7 @@ export function useThreadSocket({ threadId, onEvent }: UseThreadSocketOptions) {
   const onEventRef = useRef(onEvent);
   onEventRef.current = onEvent;
   const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const reconnectAttempt = useRef(0);
 
   useEffect(() => {
     // Only connect for valid UUID thread IDs (skip "new" or other non-UUID values)
@@ -70,9 +71,11 @@ export function useThreadSocket({ threadId, onEvent }: UseThreadSocketOptions) {
         try {
           ticket = await api.getWsTicket();
         } catch {
-          // Retry after delay if ticket fetch fails
+          // Retry with backoff if ticket fetch fails
           if (!disposed) {
-            reconnectTimer.current = setTimeout(connect, 3000);
+            const delay = Math.min(1000 * Math.pow(2, reconnectAttempt.current), 30000);
+            reconnectAttempt.current++;
+            reconnectTimer.current = setTimeout(connect, delay);
           }
           return;
         }
@@ -85,14 +88,17 @@ export function useThreadSocket({ threadId, onEvent }: UseThreadSocketOptions) {
 
       ws.onopen = () => {
         setConnected(true);
+        reconnectAttempt.current = 0; // Reset backoff on successful connect
       };
 
       ws.onclose = () => {
         setConnected(false);
         wsRef.current = null;
-        // Auto-reconnect after 3s
+        // Auto-reconnect with exponential backoff (1s, 2s, 4s, 8s, ... max 30s)
         if (!disposed) {
-          reconnectTimer.current = setTimeout(connect, 3000);
+          const delay = Math.min(1000 * Math.pow(2, reconnectAttempt.current), 30000);
+          reconnectAttempt.current++;
+          reconnectTimer.current = setTimeout(connect, delay);
         }
       };
 
@@ -114,6 +120,7 @@ export function useThreadSocket({ threadId, onEvent }: UseThreadSocketOptions) {
 
     return () => {
       disposed = true;
+      reconnectAttempt.current = 0;
       if (reconnectTimer.current) clearTimeout(reconnectTimer.current);
       wsRef.current?.close();
       wsRef.current = null;

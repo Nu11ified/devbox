@@ -11,6 +11,7 @@ import { DiffPanel } from "@/components/thread/diff-panel";
 import { TerminalDrawer } from "@/components/thread/terminal-drawer";
 import { Loader2, Trash2, Square, GitCompareArrows, TerminalIcon, GitPullRequest, Zap } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { ErrorBoundary } from "@/components/error-boundary";
 
 export default function ThreadDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -133,11 +134,14 @@ export default function ThreadDetailPage() {
             },
           ]);
           if (e.payload.toolCategory === "command_execution") {
+            const cmd = typeof e.payload.input === "object" && e.payload.input?.command
+              ? String(e.payload.input.command)
+              : JSON.stringify(e.payload.input ?? "");
             setTerminalLines((prev) => [
               ...prev,
               {
                 id: e.payload.itemId,
-                content: `$ ${e.payload.input ?? ""}`,
+                content: `$ ${cmd}`,
                 timestamp: Date.now(),
               },
             ]);
@@ -311,6 +315,7 @@ export default function ThreadDetailPage() {
   }
 
   return (
+    <ErrorBoundary>
     <div className="flex flex-col h-full">
       {/* Header */}
       <div className="border-b border-border/20 px-4 py-2 flex items-center justify-between bg-background/50 backdrop-blur-sm">
@@ -433,5 +438,6 @@ export default function ThreadDetailPage() {
         onToggle={() => setShowTerminal((v) => !v)}
       />
     </div>
+    </ErrorBoundary>
   );
 }

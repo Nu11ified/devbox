@@ -40,6 +40,8 @@ interface SessionState {
   abortController: AbortController;
   pendingRequests: Map<string, PendingRequest>;
   activeQuery: ReturnType<typeof query> | null;
+  /** When true, all tools are auto-approved for this session */
+  autoApproveAll: boolean;
 }
 
 export class ClaudeCodeAdapter implements ProviderAdapterShape {
@@ -112,6 +114,7 @@ export class ClaudeCodeAdapter implements ProviderAdapterShape {
         abortController: new AbortController(),
         pendingRequests: new Map(),
         activeQuery: null,
+        autoApproveAll: false,
       };
 
       self.sessions.set(input.threadId as string, state);
@@ -231,19 +234,15 @@ export class ClaudeCodeAdapter implements ProviderAdapterShape {
     const isFullAccess = state.session.runtimeMode === "full-access";
 
     // Start with process.env so the CLI inherits PATH, HOME, CLAUDE_CONFIG_DIR, etc.
-    // The SDK uses `options.env ?? process.env` — if we pass env, it fully replaces
-    // process.env, so we must spread it first.
     const env: Record<string, string> = {
       ...Object.fromEntries(
         Object.entries(process.env).filter((e): e is [string, string] => e[1] != null)
       ),
     };
     // Only set API key if NOT using subscription mode.
-    // Without ANTHROPIC_API_KEY, the CLI falls back to OAuth/subscription auth.
     if (state.session.apiKey && !state.session.useSubscription) {
       env.ANTHROPIC_API_KEY = state.session.apiKey;
     } else {
-      // In subscription mode, ensure no API key overrides OAuth auth
       delete env.ANTHROPIC_API_KEY;
     }
     if (state.session.githubToken) {
@@ -251,7 +250,6 @@ export class ClaudeCodeAdapter implements ProviderAdapterShape {
     }
 
     // bypassPermissions is blocked when running as root (security check in CLI).
-    // Fall back to plan mode with all tools allowed instead.
     const isRoot = process.getuid?.() === 0;
     const canBypass = isFullAccess && !isRoot;
 
@@ -263,11 +261,14 @@ export class ClaudeCodeAdapter implements ProviderAdapterShape {
     const opts: Record<string, unknown> = {
       model: model ?? state.session.model ?? "claude-sonnet-4-6",
       cwd,
-      permissionMode: canBypass ? "bypassPermissions" : "default",
+      permissionMode: canBypass ? "bypassPermissions" : "plan",
       allowDangerouslySkipPermissions: canBypass,
       maxTurns: 50,
       abortController: state.abortController,
       env,
+      includePartialMessages: true,
+      // Don't load user/project settings — our adapter controls permissions
+      settingSources: [],
     };
 
     if (isFullAccess) {
@@ -281,16 +282,102 @@ export class ClaudeCodeAdapter implements ProviderAdapterShape {
       opts.resume = state.session.resumeCursor;
     }
 
+    // Wire up approval callback for non-bypass modes
+    if (!canBypass) {
+      const self = this;
+      opts.canUseTool = async (
+        toolName: string,
+        input: Record<string, unknown>,
+        context: { toolUseID: string; signal: AbortSignal },
+      ) => {
+        // Auto-approve if user already chose "Allow All"
+        if (state.autoApproveAll) {
+          return { behavior: "allow" as const, updatedInput: input };
+        }
+
+        const requestId = context.toolUseID || randomUUID();
+
+        // Emit request.opened to the UI
+        await self.enqueue(
+          self.makeEnvelope("request.opened", threadId, {
+            requestId,
+            toolName,
+            toolCategory: classifyTool(toolName),
+            description: `${toolName} wants to execute`,
+            input,
+          }, turnId)
+        );
+
+        // Create deferred and wait for user decision
+        const deferred = Effect.runSync(Deferred.make<ApprovalDecision, never>());
+        state.pendingRequests.set(requestId, { requestId, deferred });
+
+        const decision = await Effect.runPromise(Deferred.await(deferred));
+        state.pendingRequests.delete(requestId);
+
+        // Emit request.resolved
+        await self.enqueue(
+          self.makeEnvelope("request.resolved", threadId, {
+            requestId,
+            decision: decision.type,
+          }, turnId)
+        );
+
+        if (decision.type === "allow_session") {
+          state.autoApproveAll = true;
+          return { behavior: "allow" as const, updatedInput: input };
+        }
+
+        if (decision.type === "deny") {
+          return { behavior: "deny" as const, message: decision.reason ?? "User denied" };
+        }
+
+        return { behavior: "allow" as const, updatedInput: input };
+      };
+    }
+
     console.log(`[claude-adapter] Starting query: model=${opts.model} cwd=${opts.cwd} permissionMode=${opts.permissionMode}`);
 
     const q = query({ prompt: text, options: opts as any });
     state.activeQuery = q;
 
+    // Track whether we're receiving stream events (for fallback logic)
+    let hasStreamEvents = false;
+    // Track active tool items for completion
+    const activeItemIds: string[] = [];
+
     try {
       for await (const message of q) {
-        console.log(`[claude-adapter] SDK message: type=${message.type} subtype=${(message as any).subtype ?? "none"}`);
+        if (message.type === "stream_event") {
+          hasStreamEvents = true;
+        }
 
-        const envelopes = this.mapSDKMessage(message, threadId, turnId);
+        // When new text content starts after tool execution, complete pending items
+        if (message.type === "stream_event") {
+          const streamEvent = (message as any).event;
+          if (
+            streamEvent?.type === "content_block_start" &&
+            streamEvent.content_block?.type === "text" &&
+            activeItemIds.length > 0
+          ) {
+            for (const itemId of activeItemIds) {
+              await this.enqueue(
+                this.makeEnvelope("item.completed", threadId, { itemId, turnId }, turnId)
+              );
+            }
+            activeItemIds.length = 0;
+          }
+        }
+
+        const envelopes = this.mapSDKMessage(message, threadId, turnId, hasStreamEvents);
+
+        // Track items for completion
+        for (const env of envelopes) {
+          if (env.type === "item.started") {
+            activeItemIds.push((env.payload as { itemId: string }).itemId);
+          }
+        }
+
         for (const env of envelopes) {
           await this.enqueue(env);
         }
@@ -301,9 +388,15 @@ export class ClaudeCodeAdapter implements ProviderAdapterShape {
         }
       }
 
+      // Complete any remaining tool items
+      for (const itemId of activeItemIds) {
+        await this.enqueue(
+          this.makeEnvelope("item.completed", threadId, { itemId, turnId }, turnId)
+        );
+      }
+
       // Emit diff after turn completes
       try {
-        const cwd = state.session.workspacePath || "/workspace";
         const rawDiff = execFileSync("git", ["diff", "HEAD"], {
           cwd,
           encoding: "utf-8",
@@ -341,19 +434,44 @@ export class ClaudeCodeAdapter implements ProviderAdapterShape {
     }
   }
 
+  /**
+   * Map SDK messages to provider event envelopes.
+   * When hasStreamEvents is true, text/thinking blocks in assistant messages
+   * are skipped (already streamed via stream_event). Tool use blocks are
+   * always processed from assistant messages since they contain full input.
+   */
   private mapSDKMessage(
     message: any,
     threadId: ThreadId,
-    turnId: TurnId
+    turnId: TurnId,
+    hasStreamEvents: boolean = false,
   ): ProviderEventEnvelope[] {
     const envelopes: ProviderEventEnvelope[] = [];
 
-    if (message.type === "assistant") {
-      // SDKAssistantMessage: message.message is a BetaMessage with content[]
+    if (message.type === "stream_event") {
+      const event = (message as any).event;
+
+      if (event?.type === "content_block_delta") {
+        if (event.delta?.type === "text_delta" && event.delta.text) {
+          envelopes.push(
+            this.makeEnvelope("content.delta", threadId, {
+              turnId, kind: "text", delta: event.delta.text,
+            }, turnId)
+          );
+        } else if (event.delta?.type === "thinking_delta" && event.delta.thinking) {
+          envelopes.push(
+            this.makeEnvelope("content.delta", threadId, {
+              turnId, kind: "reasoning", delta: event.delta.thinking,
+            }, turnId)
+          );
+        }
+      }
+    } else if (message.type === "assistant") {
       const betaMessage = message.message;
       if (betaMessage?.content) {
         for (const block of betaMessage.content) {
-          if (block.type === "text") {
+          if (block.type === "text" && !hasStreamEvents) {
+            // Fallback: only emit full text if stream events aren't available
             envelopes.push(
               this.makeEnvelope("content.delta", threadId, {
                 turnId, kind: "text", delta: block.text,
@@ -369,7 +487,8 @@ export class ClaudeCodeAdapter implements ProviderAdapterShape {
                 input: block.input ?? {},
               }, turnId, message)
             );
-          } else if (block.type === "thinking") {
+          } else if (block.type === "thinking" && !hasStreamEvents) {
+            // Fallback: only emit full thinking if stream events aren't available
             if (block.thinking) {
               envelopes.push(
                 this.makeEnvelope("content.delta", threadId, {
@@ -382,7 +501,6 @@ export class ClaudeCodeAdapter implements ProviderAdapterShape {
       }
     } else if (message.type === "result") {
       if (message.is_error || message.subtype?.startsWith("error")) {
-        // Handle errors — even when subtype is "success", is_error can be true
         const errorMsg = message.result ?? message.errors?.join("; ") ?? message.subtype ?? "Unknown error";
         console.error(`[claude-adapter] Result error for thread=${threadId}: ${errorMsg}`);
         envelopes.push(
@@ -418,7 +536,6 @@ export class ClaudeCodeAdapter implements ProviderAdapterShape {
       if (!state) {
         return yield* Effect.fail(new SessionNotFoundError({ threadId }));
       }
-      // Use the SDK's interrupt method instead of aborting the controller
       if (state.activeQuery) {
         yield* Effect.tryPromise({
           try: () => state.activeQuery!.interrupt(),
