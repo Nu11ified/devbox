@@ -111,12 +111,12 @@ export default function NewThreadPage() {
               <Label className="text-[11px] font-mono uppercase tracking-wider text-muted-foreground/70">
                 Repository
               </Label>
-              <Select value={repo} onValueChange={setRepo}>
+              <Select value={repo || "none"} onValueChange={(v) => setRepo(v === "none" ? "" : v)}>
                 <SelectTrigger className="w-full">
                   <SelectValue placeholder="No repo (local workspace)" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">None (local workspace)</SelectItem>
+                  <SelectItem value="none">None (local workspace)</SelectItem>
                   {repos.map((r: any) => (
                     <SelectItem key={r.full_name} value={r.full_name}>
                       {r.full_name}
