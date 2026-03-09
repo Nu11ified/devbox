@@ -62,43 +62,33 @@ export class DevboxManager {
   ): Promise<ExecResult> {
     const container = this.docker.getContainer(containerId);
 
-    // Docker container execution API (not child_process)
-    const execInstance = await container.exec({
+    // Docker container exec API (not child_process — no shell injection risk)
+    const execInst = await container.exec({
       Cmd: cmd,
       AttachStdout: true,
       AttachStderr: true,
     });
 
-    const stream = await execInstance.start({ hijack: true, stdin: false });
+    const stream = await execInst.start({});
 
     const stdout: Buffer[] = [];
     const stderr: Buffer[] = [];
 
-    // Docker multiplexed stream: 8-byte header per frame
-    // byte 0: stream type (0=stdin, 1=stdout, 2=stderr)
-    // bytes 4-7: big-endian uint32 frame size
-    await new Promise<void>((resolve, reject) => {
-      stream.on("data", (chunk: Buffer) => {
-        let offset = 0;
-        while (offset < chunk.length) {
-          if (offset + 8 > chunk.length) break;
-          const streamType = chunk[offset];
-          const size = chunk.readUInt32BE(offset + 4);
-          const payload = chunk.subarray(offset + 8, offset + 8 + size);
+    // Use dockerode's built-in demuxer to split stdout/stderr
+    const { PassThrough } = await import("node:stream");
+    const stdoutPass = new PassThrough();
+    const stderrPass = new PassThrough();
 
-          if (streamType === 1) {
-            stdout.push(payload);
-          } else if (streamType === 2) {
-            stderr.push(payload);
-          }
-          offset += 8 + size;
-        }
-      });
+    stdoutPass.on("data", (chunk: Buffer) => stdout.push(chunk));
+    stderrPass.on("data", (chunk: Buffer) => stderr.push(chunk));
+
+    await new Promise<void>((resolve, reject) => {
+      this.docker.modem.demuxStream(stream, stdoutPass, stderrPass);
       stream.on("end", resolve);
       stream.on("error", reject);
     });
 
-    const inspection = await execInstance.inspect();
+    const inspection = await execInst.inspect();
 
     return {
       exitCode: inspection.ExitCode ?? 0,
