@@ -33,7 +33,7 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - patchwork-data:/data/patchwork
-      - ${CLAUDE_CONFIG_DIR:-~/.claude}:/home/bun/.claude:ro
+      - ${CLAUDE_CONFIG_DIR:-/home/nullify/.claude}:/home/bun/.claude:ro
     # env_file passes values literally (no $ interpolation)
     # Use this for credentials that may contain special characters
     env_file:
