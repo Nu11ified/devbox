@@ -9,7 +9,8 @@ import { Timeline, type TimelineItem } from "@/components/thread/timeline";
 import { Composer } from "@/components/thread/composer";
 import { DiffPanel } from "@/components/thread/diff-panel";
 import { TerminalDrawer } from "@/components/thread/terminal-drawer";
-import { Loader2, Trash2, Square, GitCompareArrows, TerminalIcon, GitPullRequest } from "lucide-react";
+import { Loader2, Trash2, Square, GitCompareArrows, TerminalIcon, GitPullRequest, Zap } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 export default function ThreadDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -50,7 +51,8 @@ export default function ThreadDetailPage() {
           });
         }
         setItems(initial);
-        setRunning(data.status === "active");
+        const lastTurn = (data.turns ?? []).findLast((t: any) => t.role === "assistant");
+        setRunning(lastTurn?.status === "running");
       })
       .catch(console.error)
       .finally(() => setLoading(false));
@@ -67,7 +69,6 @@ export default function ThreadDetailPage() {
 
       switch (e.type) {
         case "turn.started": {
-          // New turn starting — reset streaming state
           assistantTextRef.current = "";
           assistantItemIdRef.current = null;
           break;
@@ -208,10 +209,11 @@ export default function ThreadDetailPage() {
     }
 
     if (event.type === "thread.session.status") {
-      setRunning(event.status === "active");
+      if (event.status !== "active") {
+        setRunning(false);
+      }
     }
 
-    // Handle direct WS errors (e.g. session not found, command failures)
     if (event.type === "thread.error") {
       setItems((prev) => [
         ...prev,
@@ -236,7 +238,6 @@ export default function ThreadDetailPage() {
   );
   useKeyboardShortcuts(shortcuts);
 
-  // Listen for custom keyboard events from layout
   useEffect(() => {
     const onToggleDiff = () => setShowDiff((v) => !v);
     const onToggleTerminal = () => setShowTerminal((v) => !v);
@@ -304,40 +305,55 @@ export default function ThreadDetailPage() {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-full">
-        <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+        <Loader2 className="h-5 w-5 animate-spin text-muted-foreground/30" />
       </div>
     );
   }
 
   return (
     <div className="flex flex-col h-full">
-      <div className="border-b border-border/40 px-4 py-2.5 flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <h1 className="text-sm font-medium truncate max-w-md">
+      {/* Header */}
+      <div className="border-b border-border/20 px-4 py-2 flex items-center justify-between bg-background/50 backdrop-blur-sm">
+        <div className="flex items-center gap-3 min-w-0">
+          <h1 className="text-sm font-medium truncate max-w-md text-foreground/90">
             {thread?.title ?? "Thread"}
           </h1>
-          <span className="text-[10px] font-mono text-muted-foreground/60 px-1.5 py-0.5 rounded bg-muted">
-            {thread?.provider}
-          </span>
-          {thread?.model && (
-            <span className="text-[10px] font-mono text-muted-foreground/40">
-              {thread.model}
+          <div className="flex items-center gap-1.5">
+            <span className="text-[10px] font-mono text-muted-foreground/50 px-1.5 py-0.5 rounded bg-muted/30">
+              {thread?.provider}
             </span>
+            {thread?.model && (
+              <span className="text-[10px] font-mono text-muted-foreground/30">
+                {thread.model}
+              </span>
+            )}
+          </div>
+          {running && (
+            <div className="flex items-center gap-1.5">
+              <Zap className="h-3 w-3 text-amber-500" />
+              <span className="text-[10px] font-mono text-amber-500/70">Working</span>
+            </div>
           )}
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1">
           <button
             onClick={() => setShowDiff((v) => !v)}
-            className={`flex items-center gap-1 px-2 py-1 rounded text-[10px] font-mono transition-colors ${showDiff ? "text-primary bg-primary/10" : "text-muted-foreground/50 hover:text-foreground hover:bg-muted"}`}
-            title="Toggle diff panel (⌘⇧D)"
+            className={cn(
+              "flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-mono transition-colors",
+              showDiff ? "text-primary bg-primary/10" : "text-muted-foreground/40 hover:text-foreground/70 hover:bg-muted/30"
+            )}
+            title="Toggle diff panel (Cmd+D)"
           >
             <GitCompareArrows className="h-3 w-3" />
             Diff
           </button>
           <button
             onClick={() => setShowTerminal((v) => !v)}
-            className={`flex items-center gap-1 px-2 py-1 rounded text-[10px] font-mono transition-colors ${showTerminal ? "text-primary bg-primary/10" : "text-muted-foreground/50 hover:text-foreground hover:bg-muted"}`}
-            title="Toggle terminal (⌘⇧J)"
+            className={cn(
+              "flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-mono transition-colors",
+              showTerminal ? "text-primary bg-primary/10" : "text-muted-foreground/40 hover:text-foreground/70 hover:bg-muted/30"
+            )}
+            title="Toggle terminal (Cmd+T)"
           >
             <TerminalIcon className="h-3 w-3" />
             Terminal
@@ -346,7 +362,7 @@ export default function ThreadDetailPage() {
             <button
               onClick={handleCreatePR}
               disabled={creatingPR || !!prUrl}
-              className="flex items-center gap-1 px-2 py-1 rounded text-[10px] font-mono text-green-600 hover:bg-green-500/10 transition-colors disabled:opacity-50"
+              className="flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-mono text-green-500/70 hover:bg-green-500/10 transition-colors disabled:opacity-40"
               title="Create pull request"
             >
               {creatingPR ? (
@@ -360,27 +376,35 @@ export default function ThreadDetailPage() {
           {running && (
             <button
               onClick={handleForceStop}
-              className="flex items-center gap-1 px-2 py-1 rounded text-[10px] font-mono text-amber-500 hover:bg-amber-500/10 transition-colors"
+              className="flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-mono text-amber-500/70 hover:bg-amber-500/10 transition-colors"
               title="Force stop session"
             >
               <Square className="h-3 w-3" />
               Stop
             </button>
           )}
+          <div className="w-px h-4 bg-border/20 mx-1" />
           <button
             onClick={handleDelete}
-            className="flex items-center gap-1 px-2 py-1 rounded text-[10px] font-mono text-muted-foreground/50 hover:text-destructive hover:bg-destructive/10 transition-colors"
+            className="flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-mono text-muted-foreground/30 hover:text-destructive hover:bg-destructive/10 transition-colors"
             title="Delete thread"
           >
             <Trash2 className="h-3 w-3" />
           </button>
-          <span className={`w-2 h-2 rounded-full ${connected ? "bg-green-500" : "bg-amber-500 animate-pulse"}`} />
-          <span className="text-[10px] text-muted-foreground/60">
-            {connected ? "Connected" : "Reconnecting..."}
-          </span>
+          <div className="w-px h-4 bg-border/20 mx-1" />
+          <div className="flex items-center gap-1.5">
+            <span className={cn(
+              "w-1.5 h-1.5 rounded-full",
+              connected ? "bg-green-500" : "bg-amber-500 animate-pulse"
+            )} />
+            <span className="text-[10px] text-muted-foreground/40">
+              {connected ? "Connected" : "Reconnecting..."}
+            </span>
+          </div>
         </div>
       </div>
 
+      {/* Main content */}
       <div className="flex flex-1 min-h-0">
         <div className="flex flex-col flex-1 min-w-0">
           <Timeline items={items} onApprove={approve} />

@@ -92,7 +92,21 @@ export function threadsRouter(providerService: ProviderService, authProxy?: Auth
         githubToken = account?.accessToken ?? undefined;
       }
 
+      // Default workspace: use /workspace inside Docker containers, or a temp dir on bare metal
       let resolvedWorkspacePath = workspacePath || "/workspace";
+      if (!resolvedWorkspacePath || resolvedWorkspacePath === "/workspace") {
+        // Ensure the path actually exists / is writable
+        try {
+          if (!existsSync(resolvedWorkspacePath)) {
+            mkdirSync(resolvedWorkspacePath, { recursive: true });
+          }
+        } catch {
+          // /workspace isn't writable (not in Docker) — use a temp dir
+          const fallback = `/tmp/patchwork-workspace-${crypto.randomUUID().slice(0, 8)}`;
+          mkdirSync(fallback, { recursive: true });
+          resolvedWorkspacePath = fallback;
+        }
+      }
       let devboxId: string | undefined;
 
       // If repo is provided, spawn a devbox and clone inside it

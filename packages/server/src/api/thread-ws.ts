@@ -233,23 +233,35 @@ function startEventFanOut(
 
   const program = Stream.runForEach(stream, (envelope: ProviderEventEnvelope) =>
     Effect.gen(function* () {
-      // Persist event to database
-      yield* providerService.persistEvent(envelope);
-
-      // Fan out to WebSocket clients
+      // Fan out to WebSocket clients FIRST (before persistence, which may fail)
       const threadConns = connections.get(envelope.threadId as string);
-      if (!threadConns) return;
+      if (threadConns && threadConns.size > 0) {
+        // Strip `raw` field — it's the full SDK message, unnecessary for the UI
+        const { raw, ...slimEnvelope } = envelope as ProviderEventEnvelope & { raw?: unknown };
+        try {
+          const payload = JSON.stringify({
+            type: "thread.event",
+            event: slimEnvelope,
+          });
 
-      const payload = JSON.stringify({
-        type: "thread.event",
-        event: envelope,
-      });
-
-      for (const conn of threadConns) {
-        if (conn.ws.readyState === WebSocket.OPEN) {
-          conn.ws.send(payload);
+          for (const conn of threadConns) {
+            if (conn.ws.readyState === WebSocket.OPEN) {
+              conn.ws.send(payload);
+            }
+          }
+        } catch (err) {
+          console.error("[thread-ws] Failed to serialize event:", envelope.type, err);
         }
       }
+
+      // Persist event to database (non-fatal — don't kill the stream on failure)
+      yield* providerService.persistEvent(envelope).pipe(
+        Effect.catchAll((err) =>
+          Effect.sync(() => {
+            console.error("[thread-ws] Failed to persist event:", envelope.type, err);
+          })
+        )
+      );
     })
   );
 

@@ -324,21 +324,72 @@ export class ProviderService {
   }
 
   persistEvent(envelope: ProviderEventEnvelope): Effect.Effect<void, AdapterError> {
-    return Effect.tryPromise({
-      try: () =>
-        prisma.threadEvent.create({
-          data: {
-            threadId: envelope.threadId as string,
-            turnId: envelope.turnId as string | undefined,
-            type: envelope.type,
-            payload: envelope.payload as any,
-            sequence: this.nextSequence(envelope.threadId as string),
-            createdAt: envelope.createdAt,
+    const self = this;
+    return Effect.gen(function* () {
+      // Write the raw event
+      yield* Effect.tryPromise({
+        try: () =>
+          prisma.threadEvent.create({
+            data: {
+              threadId: envelope.threadId as string,
+              turnId: envelope.turnId as string | undefined,
+              type: envelope.type,
+              payload: envelope.payload as any,
+              sequence: self.nextSequence(envelope.threadId as string),
+              createdAt: envelope.createdAt,
+            },
+          }),
+        catch: (e) =>
+          new ValidationError({ message: `Failed to persist event: ${e}` }),
+      });
+
+      // Update turn record based on event type
+      if (envelope.type === "turn.completed" && envelope.turnId) {
+        yield* Effect.tryPromise({
+          try: () =>
+            prisma.threadTurn.updateMany({
+              where: {
+                threadId: envelope.threadId as string,
+                turnId: envelope.turnId as string,
+                role: "assistant",
+              },
+              data: {
+                status: "completed",
+                completedAt: new Date(),
+              },
+            }),
+          catch: () => new ValidationError({ message: "Failed to update turn status" }),
+        }).pipe(Effect.catchAll(() => Effect.void));
+      }
+
+      // Accumulate assistant text content
+      if (
+        envelope.type === "content.delta" &&
+        envelope.turnId &&
+        envelope.payload?.kind === "text" &&
+        envelope.payload?.delta
+      ) {
+        const delta = envelope.payload.delta as string;
+        const threadId = envelope.threadId as string;
+        const turnId = envelope.turnId as string;
+        yield* Effect.tryPromise({
+          try: async () => {
+            // Append text to the assistant turn's content field
+            const turn = await prisma.threadTurn.findFirst({
+              where: { threadId, turnId, role: "assistant" },
+              select: { id: true, content: true },
+            });
+            if (turn) {
+              await prisma.threadTurn.update({
+                where: { id: turn.id },
+                data: { content: (turn.content ?? "") + delta },
+              });
+            }
           },
-        }),
-      catch: (e) =>
-        new ValidationError({ message: `Failed to persist event: ${e}` }),
-    }).pipe(Effect.asVoid);
+          catch: () => new ValidationError({ message: "Failed to append turn content" }),
+        }).pipe(Effect.catchAll(() => Effect.void));
+      }
+    });
   }
 
   mergedEventStream(): Stream.Stream<ProviderEventEnvelope, AdapterError> {

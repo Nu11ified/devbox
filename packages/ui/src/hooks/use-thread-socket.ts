@@ -27,10 +27,12 @@ function getWsUrl(threadId: string, ticket?: string): string {
 
   const wsUrl = process.env.NEXT_PUBLIC_WS_URL;
   if (wsUrl) {
+    // Direct connection to server (cross-origin or explicit override)
     return `${wsUrl}/ws/threads?${params}`;
   }
+  // Same-origin: route through Next.js rewrite (/api/ws/* → server /ws/*)
   const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
-  return `${proto}//${window.location.host}/ws/threads?${params}`;
+  return `${proto}//${window.location.host}/api/ws/threads?${params}`;
 }
 
 /** True when WS URL points to a different origin (cross-origin needs a ticket). */
