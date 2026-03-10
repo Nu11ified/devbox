@@ -591,7 +591,7 @@ export class ClaudeCodeAdapter implements ProviderAdapterShape {
       }
     } else if (message.type === "result") {
       if (message.is_error || message.subtype?.startsWith("error")) {
-        const errorMsg = message.result ?? message.errors?.join("; ") ?? message.subtype ?? "Unknown error";
+        const errorMsg = message.result || message.errors?.join("; ") || message.subtype || "Unknown error";
         console.error(`[claude-adapter] Result error for thread=${threadId}: ${errorMsg}`);
         envelopes.push(
           this.makeEnvelope("runtime.error", threadId, {

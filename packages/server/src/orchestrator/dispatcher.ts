@@ -111,11 +111,13 @@ export async function dispatchIssue(
   let worktreePath: string | undefined;
   let worktreeBranch: string | undefined;
   let projectId = issue.projectId ?? undefined;
+  let baseBranch = issue.branch; // fallback to issue's branch
 
   if (projectId) {
     const project = await prisma.project.findUnique({ where: { id: projectId } });
     if (project?.workspacePath) {
       workspacePath = project.workspacePath;
+      baseBranch = project.branch; // prefer project's branch over issue's
 
       // Create a git worktree for isolated work
       worktreeBranch = `thread/issue-${sanitizeBranchName(issue.identifier)}`;
@@ -225,7 +227,7 @@ export async function dispatchIssue(
         const prUrl = await createGitHubPR({
           repo: issue.repo,
           head: worktreeBranch,
-          base: issue.branch,
+          base: baseBranch,
           title: `${issue.identifier}: ${issue.title}`,
           body: `Automated implementation for issue ${issue.identifier}.\n\n${issue.body}\n\n---\n_Created by Patchwork_`,
           githubToken,
