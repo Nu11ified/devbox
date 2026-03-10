@@ -6,6 +6,8 @@ export const archiveRouter: RouterType = Router();
 
 interface ArchiveSearchResult {
   id: string;
+  /** "issue" or "thread" */
+  kind: "issue" | "thread";
   identifier: string;
   title: string;
   body: string;
@@ -32,26 +34,38 @@ archiveRouter.get("/", async (req, res) => {
 
   try {
     if (!query.trim()) {
-      // No search query — return all archived issues, newest first
-      const where: Record<string, unknown> = { status: "archived" };
-      if (projectId) where.projectId = projectId;
+      // No search query — return all archived issues AND archived threads, newest first
+      const issueWhere: Record<string, unknown> = { status: "archived" };
+      if (projectId) issueWhere.projectId = projectId;
 
-      const [issues, total] = await Promise.all([
+      const threadWhere: Record<string, unknown> = { archivedAt: { not: null } };
+      if (projectId) threadWhere.projectId = projectId;
+
+      const [issues, threads, issueCount, threadCount] = await Promise.all([
         prisma.issue.findMany({
-          where,
+          where: issueWhere,
           orderBy: { archivedAt: "desc" },
-          skip: offset,
           take: limit,
           include: {
             project: { select: { id: true, name: true } },
             thread: { select: { id: true } },
           },
         }),
-        prisma.issue.count({ where }),
+        prisma.thread.findMany({
+          where: threadWhere,
+          orderBy: { archivedAt: "desc" },
+          take: limit,
+          include: {
+            project: { select: { id: true, name: true } },
+          },
+        }),
+        prisma.issue.count({ where: issueWhere }),
+        prisma.thread.count({ where: threadWhere }),
       ]);
 
-      const results: ArchiveSearchResult[] = issues.map((i) => ({
+      const issueResults: ArchiveSearchResult[] = issues.map((i) => ({
         id: i.id,
+        kind: "issue" as const,
         identifier: i.identifier,
         title: i.title,
         body: i.body,
@@ -68,13 +82,43 @@ archiveRouter.get("/", async (req, res) => {
         snippet: null,
       }));
 
-      res.json({ results, total, page, limit });
+      const threadResults: ArchiveSearchResult[] = threads.map((t) => ({
+        id: t.id,
+        kind: "thread" as const,
+        identifier: "",
+        title: t.title,
+        body: "",
+        status: t.status ?? "archived",
+        priority: 0,
+        repo: "",
+        archivedAt: t.archivedAt?.toISOString() ?? null,
+        createdAt: t.createdAt.toISOString(),
+        updatedAt: t.updatedAt.toISOString(),
+        prUrl: null,
+        projectId: t.projectId,
+        projectName: (t as any).project?.name ?? null,
+        threadId: t.id,
+        snippet: null,
+      }));
+
+      // Merge and sort by archivedAt descending
+      const results = [...issueResults, ...threadResults]
+        .sort((a, b) => {
+          const da = a.archivedAt ? new Date(a.archivedAt).getTime() : 0;
+          const db = b.archivedAt ? new Date(b.archivedAt).getTime() : 0;
+          return db - da;
+        })
+        .slice(offset, offset + limit);
+
+      res.json({ results, total: issueCount + threadCount, page, limit });
       return;
     }
 
-    // Full-text search across issue titles/bodies and thread turn content
+    // Full-text search across archived issues AND archived threads
     // ts_headline uses ** delimiters instead of HTML tags for safety
-    const results = await prisma.$queryRaw<Array<{
+
+    // 1. Search archived issues (and their linked thread content)
+    const issueResults = await prisma.$queryRaw<Array<{
       id: string;
       identifier: string;
       title: string;
@@ -125,11 +169,54 @@ archiveRouter.get("/", async (req, res) => {
         )
         ${projectId ? Prisma.sql`AND i.project_id = ${projectId}::uuid` : Prisma.empty}
       ORDER BY i.id, i.archived_at DESC
-      LIMIT ${limit} OFFSET ${offset}
+      LIMIT ${limit}
     `;
 
-    const mapped: ArchiveSearchResult[] = results.map((r) => ({
+    // 2. Search archived threads directly (threads archived independently of issues)
+    const threadResults = await prisma.$queryRaw<Array<{
+      id: string;
+      title: string;
+      status: string;
+      archived_at: Date | null;
+      created_at: Date;
+      updated_at: Date;
+      project_id: string | null;
+      project_name: string | null;
+      snippet: string | null;
+    }>>`
+      SELECT DISTINCT ON (th.id)
+        th.id,
+        th.title,
+        th.status,
+        th.archived_at,
+        th.created_at,
+        th.updated_at,
+        th.project_id,
+        p.name as project_name,
+        COALESCE(
+          ts_headline('english', COALESCE(t.content, ''),
+            plainto_tsquery('english', ${query}),
+            'MaxWords=30, MinWords=15, HighlightAll=false, StartSel=**, StopSel=**'),
+          ''
+        ) as snippet
+      FROM threads th
+      LEFT JOIN projects p ON p.id = th.project_id
+      LEFT JOIN thread_turns t ON t.thread_id = th.id
+      WHERE th.archived_at IS NOT NULL
+        AND (
+          to_tsvector('english', COALESCE(th.title, ''))
+            @@ plainto_tsquery('english', ${query})
+          OR to_tsvector('english', COALESCE(t.content, ''))
+            @@ plainto_tsquery('english', ${query})
+        )
+        ${projectId ? Prisma.sql`AND th.project_id = ${projectId}::uuid` : Prisma.empty}
+      ORDER BY th.id, th.archived_at DESC
+      LIMIT ${limit}
+    `;
+
+    const mappedIssues: ArchiveSearchResult[] = issueResults.map((r) => ({
       id: r.id,
+      kind: "issue" as const,
       identifier: r.identifier,
       title: r.title,
       body: r.body,
@@ -146,7 +233,35 @@ archiveRouter.get("/", async (req, res) => {
       snippet: r.snippet,
     }));
 
-    res.json({ results: mapped, page, limit });
+    const mappedThreads: ArchiveSearchResult[] = threadResults.map((r) => ({
+      id: r.id,
+      kind: "thread" as const,
+      identifier: "",
+      title: r.title,
+      body: "",
+      status: r.status ?? "archived",
+      priority: 0,
+      repo: "",
+      archivedAt: r.archived_at?.toISOString() ?? null,
+      createdAt: r.created_at.toISOString(),
+      updatedAt: r.updated_at.toISOString(),
+      prUrl: null,
+      projectId: r.project_id,
+      projectName: r.project_name,
+      threadId: r.id,
+      snippet: r.snippet,
+    }));
+
+    // Merge, sort by archivedAt, and paginate
+    const merged = [...mappedIssues, ...mappedThreads]
+      .sort((a, b) => {
+        const da = a.archivedAt ? new Date(a.archivedAt).getTime() : 0;
+        const db = b.archivedAt ? new Date(b.archivedAt).getTime() : 0;
+        return db - da;
+      })
+      .slice(0, limit);
+
+    res.json({ results: merged, page, limit });
   } catch (err) {
     console.error("[archive] search error:", err);
     res.status(500).json({ error: "Archive search failed" });

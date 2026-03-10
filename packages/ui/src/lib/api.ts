@@ -122,6 +122,8 @@ export interface IssueItem {
 
 export interface ArchiveSearchResult {
   id: string;
+  /** "issue" or "thread" */
+  kind?: "issue" | "thread";
   identifier: string;
   title: string;
   body: string;

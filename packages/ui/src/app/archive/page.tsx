@@ -2,7 +2,7 @@
 
 import { useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { Search, Archive, GitPullRequest } from "lucide-react";
+import { Search, Archive, GitPullRequest, MessageSquare, Bug } from "lucide-react";
 import { api, type ArchiveSearchResult, type ArchiveSearchResponse } from "@/lib/api";
 import { useApi } from "@/hooks/use-api";
 import { Input } from "@/components/ui/input";
@@ -94,7 +94,7 @@ export default function ArchivePage() {
           Archive
         </h1>
         <p className="text-sm text-muted-foreground/70 mt-0.5">
-          Search completed issues and past thread transcripts
+          Search archived issues and threads
         </p>
       </div>
 
@@ -136,7 +136,7 @@ export default function ArchivePage() {
 
       {!isLoading && results.length === 0 && (
         <div className="py-12 text-center text-muted-foreground/60 text-sm">
-          {hasSearched ? "No results found" : "No archived issues yet"}
+          {hasSearched ? "No results found" : "No archived items yet"}
         </div>
       )}
 
@@ -151,12 +151,24 @@ export default function ArchivePage() {
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">
-                    <span className="text-[11px] font-mono text-zinc-500">
-                      {result.identifier}
-                    </span>
+                    {result.kind === "thread" ? (
+                      <MessageSquare className="h-3.5 w-3.5 text-violet-500/60 shrink-0" />
+                    ) : (
+                      <Bug className="h-3.5 w-3.5 text-zinc-500 shrink-0" />
+                    )}
+                    {result.identifier && (
+                      <span className="text-[11px] font-mono text-zinc-500">
+                        {result.identifier}
+                      </span>
+                    )}
                     <span className="text-sm font-medium text-zinc-200 truncate">
                       {result.title}
                     </span>
+                    {result.kind === "thread" && (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded-full border border-violet-700/30 bg-violet-900/20 text-violet-400">
+                        thread
+                      </span>
+                    )}
                   </div>
                   <div className="flex items-center gap-2 mt-1">
                     <span className={cn(
