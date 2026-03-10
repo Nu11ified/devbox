@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { ArrowLeft, Plus, GitBranch, CircleDot } from "lucide-react";
+import { ArrowLeft, Plus, GitBranch, CircleDot, Archive } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { api, type ProjectDetail } from "@/lib/api";
 
@@ -33,6 +33,8 @@ const issueStatusColor: Record<string, string> = {
   in_progress: "text-amber-400",
   review: "text-violet-400",
   done: "text-emerald-400",
+  cancelled: "text-red-400",
+  archived: "text-zinc-600",
 };
 
 // ── Component ──────────────────────────────────────────────────────
@@ -49,6 +51,14 @@ export function ProjectSidebar({
   const [project, setProject] = useState<ProjectDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const pathname = usePathname();
+  const [archiveOpen, setArchiveOpen] = useState(false);
+  const [archiveItems, setArchiveItems] = useState<Array<{
+    id: string;
+    identifier: string;
+    title: string;
+    archivedAt: string | null;
+  }>>([]);
+  const [archiveLoading, setArchiveLoading] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -76,6 +86,26 @@ export function ProjectSidebar({
       clearInterval(interval);
     };
   }, [projectId]);
+
+  useEffect(() => {
+    if (!archiveOpen) return;
+    let cancelled = false;
+    setArchiveLoading(true);
+    api.searchArchive({ projectId, limit: 10 })
+      .then((res) => {
+        if (!cancelled) {
+          setArchiveItems(res.results.map((r) => ({
+            id: r.id,
+            identifier: r.identifier,
+            title: r.title,
+            archivedAt: r.archivedAt,
+          })));
+        }
+      })
+      .catch(() => {})
+      .finally(() => { if (!cancelled) setArchiveLoading(false); });
+    return () => { cancelled = true; };
+  }, [archiveOpen, projectId]);
 
   // Sort threads: active/starting first, then by updatedAt desc
   const sortedThreads = project?.threads
@@ -262,6 +292,47 @@ export function ProjectSidebar({
               </div>
             </>
           )}
+
+          {/* ── Archive Section ───────────────────────────────── */}
+          <div className="mt-3">
+            <button
+              onClick={() => setArchiveOpen(!archiveOpen)}
+              className="flex items-center gap-1.5 px-2 py-1.5 w-full text-left hover:bg-zinc-800/30 rounded transition-colors"
+            >
+              <Archive className="h-3 w-3 text-zinc-600" />
+              <span className="text-[10px] font-mono uppercase text-zinc-600 tracking-wider">
+                Archive
+              </span>
+              <span className="text-[10px] text-zinc-700 ml-auto">
+                {archiveOpen ? "▾" : "▸"}
+              </span>
+            </button>
+
+            {archiveOpen && (
+              <div className="space-y-0.5 mt-0.5">
+                {archiveLoading ? (
+                  <div className="px-2.5 py-2 text-[11px] text-zinc-600">Loading...</div>
+                ) : archiveItems.length === 0 ? (
+                  <div className="px-2.5 py-2 text-[11px] text-zinc-600">No archived issues</div>
+                ) : (
+                  archiveItems.map((item) => (
+                    <div
+                      key={item.id}
+                      className="flex items-center gap-2 rounded-lg px-2.5 py-1.5 hover:bg-zinc-800/40 transition-colors min-w-0"
+                    >
+                      <Archive className="h-3 w-3 shrink-0 text-zinc-600" />
+                      <span className="text-[11px] text-zinc-600 shrink-0 font-mono">
+                        {item.identifier}
+                      </span>
+                      <span className="text-sm text-zinc-500 truncate">
+                        {item.title}
+                      </span>
+                    </div>
+                  ))
+                )}
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </div>
