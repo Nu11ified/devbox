@@ -7,21 +7,8 @@ import {
   removeIssue,
 } from "../db/queries.js";
 import prisma from "../db/prisma.js";
-import { createWorktree } from "../git/worktree.js";
 
 export const issuesRouter: RouterType = Router();
-
-/**
- * Sanitize a string for use as a git branch name.
- * Replaces spaces and special characters with dashes, collapses consecutive dashes.
- */
-function sanitizeBranchName(name: string): string {
-  return name
-    .toLowerCase()
-    .replace(/[^a-z0-9\-_/]/g, "-")
-    .replace(/-{2,}/g, "-")
-    .replace(/^-|-$/g, "");
-}
 
 // POST /api/issues — create a new issue
 issuesRouter.post("/", async (req, res) => {
@@ -105,7 +92,7 @@ issuesRouter.delete("/:id", async (req, res) => {
   res.status(204).send();
 });
 
-// POST /api/issues/:id/dispatch — dispatch an issue: create worktree + thread
+// POST /api/issues/:id/dispatch — queue an issue for the autonomous orchestrator
 issuesRouter.post("/:id/dispatch", async (req, res) => {
   const issue = await findIssueById(req.params.id);
   if (!issue) {
@@ -135,48 +122,12 @@ issuesRouter.post("/:id/dispatch", async (req, res) => {
     return;
   }
 
-  // Create worktree branch name from issue identifier
-  const branchName = `thread/issue-${sanitizeBranchName(issue.identifier)}`;
-  const worktreeDir = `${project.workspacePath}/../worktrees/${issue.id.slice(0, 8)}`;
-
-  // Attempt to create the git worktree
-  try {
-    createWorktree({
-      repoDir: project.workspacePath,
-      worktreeDir,
-      branch: branchName,
-      baseBranch: project.branch,
-    });
-  } catch (err: unknown) {
-    console.error("Failed to create worktree:", err);
-    // Non-fatal: the thread can still be created without a working worktree
-    // (e.g. repo may not exist yet on this machine)
-  }
-
-  // Create a thread linked to this issue and project
-  const thread = await prisma.thread.create({
-    data: {
-      title: issue.title,
-      provider: "claudeCode",
-      runtimeMode: "approval-required",
-      status: "idle",
-      projectId: issue.projectId,
-      worktreePath: worktreeDir,
-      worktreeBranch: branchName,
-      issueId: issue.id,
-      userId: issue.createdByUserId,
-    },
+  // Queue the issue — the orchestrator polls for "queued" issues and runs
+  // the full autonomous pipeline: worktree → thread → prompt → wait → PR
+  const updated = await updateIssue(req.params.id, {
+    status: "queued",
+    lastError: null,
   });
 
-  // Update the issue status to in_progress
-  const updated = await updateIssue(req.params.id, { status: "in_progress" });
-
-  res.json({
-    ...updated,
-    thread: {
-      id: thread.id,
-      status: thread.status,
-      worktreeBranch: thread.worktreeBranch,
-    },
-  });
+  res.json(updated);
 });

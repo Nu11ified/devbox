@@ -1,4 +1,5 @@
-import { getPool, findDispatchableIssues, updateIssue } from "../db/queries.js";
+import { findDispatchableIssues, updateIssue } from "../db/queries.js";
+import prisma from "../db/prisma.js";
 import { dispatchIssue } from "./dispatcher.js";
 import type { ProviderService } from "../providers/service.js";
 
@@ -18,7 +19,6 @@ const MAX_RETRIES = 3;
 
 interface RunningEntry {
   issueId: string;
-  runId: string;
   startedAt: Date;
   promise: Promise<void>;
   settled: boolean;
@@ -80,29 +80,17 @@ export class Orchestrator {
   }
 
   /**
-   * On startup, reset stale in_progress issues whose runs are terminal,
-   * and clean up orphaned devbox containers.
+   * On startup, re-queue any issues stuck in in_progress (from a previous server crash).
    */
   private async startupCleanup(): Promise<void> {
     try {
-      const db = getPool();
-
-      // Reset issues stuck in in_progress whose runs have finished
-      await db.query(
-        `UPDATE issues SET status = 'queued', last_error = 'Reset after server restart'
-         WHERE status = 'in_progress'
-           AND run_id IS NOT NULL
-           AND run_id IN (
-             SELECT id FROM runs WHERE status IN ('completed', 'failed', 'cancelled')
-           )`
-      );
-
-      // Reset issues stuck in in_progress with no run
-      await db.query(
-        `UPDATE issues SET status = 'queued', last_error = 'Reset after server restart'
-         WHERE status = 'in_progress' AND run_id IS NULL`
-      );
-
+      const stuck = await prisma.issue.updateMany({
+        where: { status: "in_progress" },
+        data: { status: "queued", lastError: "Reset after server restart" },
+      });
+      if (stuck.count > 0) {
+        console.log(`[orchestrator] re-queued ${stuck.count} stuck in_progress issues`);
+      }
       console.log("[orchestrator] startup cleanup complete");
     } catch (err) {
       console.error("[orchestrator] startup cleanup error:", err);
@@ -140,42 +128,17 @@ export class Orchestrator {
   }
 
   /**
-   * Detect runs that have stalled (no transcript events for > STALL_TIMEOUT_MS).
+   * Detect dispatches that have been running longer than STALL_TIMEOUT_MS.
    */
   private async detectStalls(): Promise<void> {
     if (this.running.size === 0) return;
 
-    const db = getPool();
-    const runIds = Array.from(this.running.values()).map((e) => e.runId);
-
-    for (const runId of runIds) {
-      try {
-        const result = await db.query(
-          "SELECT MAX(created_at) AS last_event FROM transcript_events WHERE run_id = $1",
-          [runId]
-        );
-        const lastEvent = result.rows[0]?.last_event;
-        if (!lastEvent) continue;
-
-        const staleDuration = Date.now() - new Date(lastEvent).getTime();
-        if (staleDuration > STALL_TIMEOUT_MS) {
-          console.log(`[orchestrator] stall detected for run ${runId} (${staleDuration}ms since last event)`);
-
-          // Find the entry and cancel it
-          for (const [key, entry] of this.running) {
-            if (entry.runId === runId) {
-              await db.query(
-                "UPDATE runs SET status = 'failed', updated_at = now() WHERE id = $1",
-                [runId]
-              );
-              await this.scheduleRetry(entry.issueId, "Stalled: no activity");
-              entry.settled = true;
-              break;
-            }
-          }
-        }
-      } catch {
-        // Continue checking other runs
+    for (const [key, entry] of this.running) {
+      const elapsed = Date.now() - entry.startedAt.getTime();
+      if (elapsed > STALL_TIMEOUT_MS && !entry.settled) {
+        console.log(`[orchestrator] stall detected for issue ${entry.issueId} (${elapsed}ms elapsed)`);
+        await this.scheduleRetry(entry.issueId, "Stalled: exceeded timeout");
+        entry.settled = true;
       }
     }
   }
@@ -203,7 +166,6 @@ export class Orchestrator {
       // Track settlement
       const entry: RunningEntry = {
         issueId: issue.id,
-        runId: "", // Will be set once run is created
         startedAt: new Date(),
         promise,
         settled: false,
