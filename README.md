@@ -140,6 +140,48 @@ Patchwork uses a provider adapter system to support multiple AI coding agents be
 
 Adapters are registered at startup and routed per-thread. Adding a new provider means implementing the `ProviderAdapterShape` interface.
 
+### Claude Code SDK Integration
+
+Full integration with `@anthropic-ai/claude-agent-sdk` across 18 feature areas:
+
+**Agent Execution**
+- **Streaming** -- Token-level streaming via `includePartialMessages`, fan-out over WebSocket
+- **Multi-turn conversations** -- Persistent sessions with history and `continue` support
+- **Session forking** -- Fork any thread into a parallel session (`forkSession: true`)
+- **Effort levels** -- Configurable agent effort (`low`, `medium`, `high`) per query
+- **Structured output** -- JSON schema output format passthrough to SDK
+
+**Custom Tools & Skills**
+- **Custom MCP tools** -- In-process MCP server with Patchwork-specific tools: `patchwork_get_project`, `patchwork_list_threads`, `patchwork_list_issues`, `patchwork_create_issue`, `patchwork_update_thread_title`
+- **Tool classification** -- Categorizes tools (file, shell, search, mcp, todo, subagent) for UI display and permission gating
+- **Slash commands** -- Auto-provisioned `/review`, `/test`, `/commit`, `/pr`, `/fix` in workspace `.claude/commands/`
+- **Skills** -- Project-context and code-quality skills in `.claude/skills/`
+- **Workspace config** -- Auto-generated `.claude/settings.json` with default permissions
+
+**Subagents**
+- **Specialist subagents** -- 5 built-in agent definitions dispatched via the Agent tool: `code-reviewer`, `test-writer`, `security-auditor`, `refactorer`, `researcher`
+
+**Safety & Hooks**
+- **Programmatic hooks** -- `PreToolUse`, `PostToolUse`, `Notification`, `SubagentStart`, `SubagentStop`, `Stop` callbacks
+- **Dangerous command blocking** -- Regex-based detection of `rm -rf /`, fork bombs, pipe-to-shell, force push to main
+- **Protected path enforcement** -- Blocks writes to `/etc/`, `/usr/`, `.env`, credentials, and secrets files
+- **Audit logging** -- All tool invocations logged with tool name, timestamp, and approval status
+
+**File Checkpointing**
+- **Automatic checkpoints** -- `enableFileCheckpointing: true` tracks file state at each tool use
+- **Rewind support** -- `rewindFiles(checkpointId)` via WebSocket command with one-click UI button
+
+**Todo Tracking & Interactive Q&A**
+- **TodoWrite detection** -- Intercepts `TodoWrite` tool_use blocks, streams live todo progress to UI timeline
+- **AskUserQuestion** -- Agent asks clarifying questions with multiple-choice options, rendered as interactive cards
+
+**Secure Deployment**
+- **Container hardening** -- `--cap-drop ALL`, `no-new-privileges`, PID limits (256), tmpfs `/tmp`
+- **Resource limits** -- 2GB memory, 2 CPU cores per devbox container
+- **Non-root execution** -- Devbox containers run as `agent` user (uid 1000)
+- **Network isolation** -- Default `NetworkMode: "none"` for sandboxed execution
+- **Credential proxying** -- `ANTHROPIC_BASE_URL` passthrough for API key isolation
+
 ### Agent Subscriptions
 
 During onboarding, you can enable Claude or OpenAI subscriptions. When enabled, agents run with the `--subscription` flag, using your subscription instead of API keys.
