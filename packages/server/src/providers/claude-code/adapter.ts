@@ -301,11 +301,6 @@ export class ClaudeCodeAdapter implements ProviderAdapterShape {
       env.GITHUB_TOKEN = state.session.githubToken;
     }
 
-    // Always bypass permissions when user chose full-access — even as root.
-    // The SDK's root check is a safety guard for interactive CLI use, but our
-    // server is a controlled environment where the user explicitly opted in.
-    const canBypass = isFullAccess;
-
     const cwd = state.session.workspacePath || "/workspace";
     if (!existsSync(cwd)) {
       mkdirSync(cwd, { recursive: true });
@@ -317,12 +312,22 @@ export class ClaudeCodeAdapter implements ProviderAdapterShape {
     // Enable agent teams feature flag
     env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS = "1";
 
+    // Determine permission mode based on runtime mode and environment.
+    // The CLI blocks --dangerously-skip-permissions when running as root,
+    // so we use "dontAsk" (auto-approves all tools) instead of "bypassPermissions"
+    // when running in a server container as root.
+    const isRoot = process.getuid?.() === 0;
+    let permissionMode: string;
+    if (isFullAccess) {
+      permissionMode = isRoot ? "dontAsk" : "bypassPermissions";
+    } else {
+      permissionMode = "plan";
+    }
+
     const opts: Record<string, unknown> = {
       model: model ?? state.session.model ?? "claude-opus-4-6",
       cwd,
-      permissionMode: canBypass ? "bypassPermissions" : "plan",
-      allowDangerouslySkipPermissions: canBypass,
-      dangerouslySkipPermissions: canBypass,
+      permissionMode,
       maxTurns: 50,
       abortController: state.abortController,
       env,
@@ -330,6 +335,12 @@ export class ClaudeCodeAdapter implements ProviderAdapterShape {
       // Don't load user/project settings — our adapter controls permissions
       settingSources: [],
     };
+
+    // Only set bypass flags when NOT running as root (root can't use them)
+    if (isFullAccess && !isRoot) {
+      opts.allowDangerouslySkipPermissions = true;
+      opts.dangerouslySkipPermissions = true;
+    }
 
     if (isFullAccess) {
       opts.allowedTools = [
@@ -342,8 +353,8 @@ export class ClaudeCodeAdapter implements ProviderAdapterShape {
       opts.resume = state.session.resumeCursor;
     }
 
-    // Wire up approval callback for non-bypass modes
-    if (!canBypass) {
+    // Wire up approval callback for approval-required mode (plan)
+    if (permissionMode === "plan") {
       const self = this;
       opts.canUseTool = async (
         toolName: string,
@@ -487,12 +498,26 @@ export class ClaudeCodeAdapter implements ProviderAdapterShape {
     } catch (err: any) {
       if (err?.name === "AbortError") return;
 
+      // Produce a more descriptive error for common failure modes
+      let errorMessage = err?.message ?? String(err);
+      if (errorMessage.includes("exited with code 1")) {
+        if (!env.ANTHROPIC_API_KEY) {
+          errorMessage = "Claude Code process exited — no API key configured. Please add your Anthropic API key in Settings, or ensure the server has ANTHROPIC_API_KEY set.";
+        } else {
+          errorMessage = "Claude Code process exited unexpectedly. Check server logs for details.";
+        }
+      }
+
       console.error(`[claude-adapter] Query error for thread=${threadId}:`, err?.message ?? err);
       await this.enqueue(
         this.makeEnvelope("runtime.error", threadId, {
-          message: err?.message ?? String(err),
+          message: errorMessage,
           recoverable: true,
         }, turnId)
+      );
+      // Emit turn.completed so the UI stops showing "Working" state
+      await this.enqueue(
+        this.makeEnvelope("turn.completed", threadId, { turnId }, turnId)
       );
     } finally {
       state.activeQuery = null;
