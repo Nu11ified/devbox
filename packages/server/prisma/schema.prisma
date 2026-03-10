@@ -311,6 +311,7 @@ model Thread {
   projectId      String?  @map("project_id") @db.Uuid
   worktreePath   String?  @map("worktree_path")
   worktreeBranch String?  @map("worktree_branch")
+  archivedAt     DateTime? @map("archived_at") @db.Timestamptz
   createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt      DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 

@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { ArrowLeft, Plus, GitBranch, CircleDot, Archive } from "lucide-react";
+import { ArrowLeft, Plus, GitBranch, CircleDot, Archive, ArchiveRestore } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { api, type ProjectDetail } from "@/lib/api";
 
@@ -52,11 +52,18 @@ export function ProjectSidebar({
   const [loading, setLoading] = useState(true);
   const pathname = usePathname();
   const [archiveOpen, setArchiveOpen] = useState(false);
-  const [archiveItems, setArchiveItems] = useState<Array<{
+  const [archiveIssues, setArchiveIssues] = useState<Array<{
     id: string;
     identifier: string;
     title: string;
     archivedAt: string | null;
+  }>>([]);
+  const [archiveThreads, setArchiveThreads] = useState<Array<{
+    id: string;
+    title: string;
+    status: string;
+    archivedAt: string;
+    updatedAt: string;
   }>>([]);
   const [archiveLoading, setArchiveLoading] = useState(false);
 
@@ -91,21 +98,58 @@ export function ProjectSidebar({
     if (!archiveOpen) return;
     let cancelled = false;
     setArchiveLoading(true);
-    api.searchArchive({ projectId, limit: 10 })
-      .then((res) => {
+    Promise.all([
+      api.searchArchive({ projectId, limit: 10 }),
+      api.listArchivedThreads(projectId),
+    ])
+      .then(([issueRes, threads]) => {
         if (!cancelled) {
-          setArchiveItems(res.results.map((r) => ({
+          setArchiveIssues(issueRes.results.map((r) => ({
             id: r.id,
             identifier: r.identifier,
             title: r.title,
             archivedAt: r.archivedAt,
           })));
+          setArchiveThreads(threads);
         }
       })
       .catch(() => {})
       .finally(() => { if (!cancelled) setArchiveLoading(false); });
     return () => { cancelled = true; };
   }, [archiveOpen, projectId]);
+
+  async function handleArchiveThread(e: React.MouseEvent, threadId: string) {
+    e.preventDefault();
+    e.stopPropagation();
+    try {
+      await api.archiveThread(threadId);
+      // Refresh project data to remove thread from active list
+      const data = await api.getProject(projectId);
+      setProject(data);
+      // Refresh archive list if open
+      if (archiveOpen) {
+        const threads = await api.listArchivedThreads(projectId);
+        setArchiveThreads(threads);
+      }
+    } catch (err) {
+      console.error("Failed to archive thread:", err);
+    }
+  }
+
+  async function handleUnarchiveThread(e: React.MouseEvent, threadId: string) {
+    e.preventDefault();
+    e.stopPropagation();
+    try {
+      await api.archiveThread(threadId);
+      // Refresh both lists
+      const data = await api.getProject(projectId);
+      setProject(data);
+      const threads = await api.listArchivedThreads(projectId);
+      setArchiveThreads(threads);
+    } catch (err) {
+      console.error("Failed to unarchive thread:", err);
+    }
+  }
 
   // Sort threads: active/starting first, then by updatedAt desc
   const sortedThreads = project?.threads
@@ -250,9 +294,18 @@ export function ProjectSidebar({
                       </div>
                     </div>
 
-                    {/* Time ago */}
-                    <span className="text-[10px] text-zinc-600 shrink-0">
+                    {/* Time ago + archive button */}
+                    <span className="text-[10px] text-zinc-600 shrink-0 flex items-center gap-1">
                       {timeAgo(thread.updatedAt)}
+                      {["idle", "error"].includes(thread.status) && (
+                        <button
+                          onClick={(e) => handleArchiveThread(e, thread.id)}
+                          className="opacity-0 group-hover:opacity-100 p-0.5 hover:text-zinc-400 transition-all"
+                          title="Archive thread"
+                        >
+                          <Archive className="h-3 w-3" />
+                        </button>
+                      )}
                     </span>
                   </Link>
                 );
@@ -312,23 +365,43 @@ export function ProjectSidebar({
               <div className="space-y-0.5 mt-0.5">
                 {archiveLoading ? (
                   <div className="px-2.5 py-2 text-[11px] text-zinc-600">Loading...</div>
-                ) : archiveItems.length === 0 ? (
-                  <div className="px-2.5 py-2 text-[11px] text-zinc-600">No archived issues</div>
+                ) : archiveThreads.length === 0 && archiveIssues.length === 0 ? (
+                  <div className="px-2.5 py-2 text-[11px] text-zinc-600">Nothing archived</div>
                 ) : (
-                  archiveItems.map((item) => (
-                    <div
-                      key={item.id}
-                      className="flex items-center gap-2 rounded-lg px-2.5 py-1.5 hover:bg-zinc-800/40 transition-colors min-w-0"
-                    >
-                      <Archive className="h-3 w-3 shrink-0 text-zinc-600" />
-                      <span className="text-[11px] text-zinc-600 shrink-0 font-mono">
-                        {item.identifier}
-                      </span>
-                      <span className="text-sm text-zinc-500 truncate">
-                        {item.title}
-                      </span>
-                    </div>
-                  ))
+                  <>
+                    {archiveThreads.map((thread) => (
+                      <div
+                        key={thread.id}
+                        className="flex items-center gap-2 rounded-lg px-2.5 py-1.5 hover:bg-zinc-800/40 transition-colors min-w-0 group/arch"
+                      >
+                        <span className="w-1.5 h-1.5 rounded-full shrink-0 bg-zinc-700" />
+                        <span className="text-sm text-zinc-500 truncate flex-1">
+                          {thread.title}
+                        </span>
+                        <button
+                          onClick={(e) => handleUnarchiveThread(e, thread.id)}
+                          className="opacity-0 group-hover/arch:opacity-100 p-0.5 text-zinc-600 hover:text-zinc-400 transition-all"
+                          title="Unarchive thread"
+                        >
+                          <ArchiveRestore className="h-3 w-3" />
+                        </button>
+                      </div>
+                    ))}
+                    {archiveIssues.map((item) => (
+                      <div
+                        key={item.id}
+                        className="flex items-center gap-2 rounded-lg px-2.5 py-1.5 hover:bg-zinc-800/40 transition-colors min-w-0"
+                      >
+                        <Archive className="h-3 w-3 shrink-0 text-zinc-600" />
+                        <span className="text-[11px] text-zinc-600 shrink-0 font-mono">
+                          {item.identifier}
+                        </span>
+                        <span className="text-sm text-zinc-500 truncate">
+                          {item.title}
+                        </span>
+                      </div>
+                    ))}
+                  </>
                 )}
               </div>
             )}

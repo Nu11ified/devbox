@@ -39,6 +39,7 @@ export function projectsRouter(): Router {
         where: { id: req.params.id, userId },
         include: {
           threads: {
+            where: { archivedAt: null },
             orderBy: { updatedAt: "desc" },
             select: {
               id: true,

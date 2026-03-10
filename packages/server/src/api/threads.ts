@@ -19,14 +19,22 @@ export function threadsRouter(providerService: ProviderService, authProxy?: Auth
   const router = Router();
 
   // List threads for current user
+  // Supports ?projectId=X&archived=true to fetch archived threads for a project
   router.get("/", async (req, res) => {
     try {
       const userId = (req as any).user?.id;
       if (!userId) {
         return res.json([]);
       }
+      const where: any = { userId };
+      if (req.query.projectId) where.projectId = req.query.projectId;
+      if (req.query.archived === "true") {
+        where.archivedAt = { not: null };
+      } else {
+        where.archivedAt = null;
+      }
       const threads = await prisma.thread.findMany({
-        where: { userId },
+        where,
         orderBy: { updatedAt: "desc" },
         include: {
           _count: { select: { turns: true, events: true } },
@@ -385,6 +393,27 @@ export function threadsRouter(providerService: ProviderService, authProxy?: Auth
       });
 
       res.json({ prUrl: pr.html_url, prNumber: pr.number, branch: branchName });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Archive or unarchive a thread
+  router.patch("/:id/archive", async (req, res) => {
+    try {
+      const userId = (req as any).user?.id;
+      const thread = await prisma.thread.findFirst({
+        where: { id: req.params.id, ...(userId ? { userId } : {}) },
+      });
+      if (!thread) return res.status(404).json({ error: "Thread not found" });
+
+      const archivedAt = thread.archivedAt ? null : new Date();
+      await prisma.thread.update({
+        where: { id: thread.id },
+        data: { archivedAt },
+      });
+
+      res.json({ ok: true, archived: !!archivedAt });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }

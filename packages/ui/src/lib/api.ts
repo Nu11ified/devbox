@@ -207,6 +207,7 @@ export interface ProjectDetail extends ProjectItem {
     provider: string;
     model: string | null;
     worktreeBranch: string | null;
+    archivedAt: string | null;
     createdAt: string;
     updatedAt: string;
   }>;
@@ -550,6 +551,22 @@ class PatchworkAPI {
     return request<void>(`/api/threads/${threadId}`, {
       method: "DELETE",
     });
+  }
+
+  async archiveThread(threadId: string): Promise<{ ok: boolean; archived: boolean }> {
+    return request<{ ok: boolean; archived: boolean }>(`/api/threads/${threadId}/archive`, {
+      method: "PATCH",
+    });
+  }
+
+  async listArchivedThreads(projectId: string): Promise<Array<{
+    id: string;
+    title: string;
+    status: string;
+    archivedAt: string;
+    updatedAt: string;
+  }>> {
+    return request(`/api/threads?projectId=${encodeURIComponent(projectId)}&archived=true`);
   }
 
   async getWsTicket(): Promise<string> {
