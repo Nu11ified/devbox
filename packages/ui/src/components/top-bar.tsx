@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
   LayoutGrid,
+  FolderOpen,
   Puzzle,
   Settings,
   Search,
@@ -20,6 +21,7 @@ import { api } from "@/lib/api";
 
 const navLinks = [
   { href: "/board", label: "Board", icon: LayoutGrid },
+  { href: "/projects", label: "Projects", icon: FolderOpen },
   { href: "/plugins", label: "Plugins", icon: Puzzle },
   { href: "/settings", label: "Settings", icon: Settings },
 ];
