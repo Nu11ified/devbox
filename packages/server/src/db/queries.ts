@@ -203,7 +203,7 @@ export async function findIssueByIdentifier(identifier: string) {
 
 export async function updateIssue(
   id: string,
-  fields: Partial<CreateIssueInput & { status: string; runId: string; retryCount: number; lastError: string | null }>
+  fields: Partial<CreateIssueInput & { status: string; runId: string; retryCount: number; lastError: string | null; prUrl: string | null }>
 ) {
   const data: Record<string, unknown> = {};
 
@@ -223,6 +223,7 @@ export async function updateIssue(
     lastError: "lastError",
     githubIssueId: "githubIssueId",
     githubIssueUrl: "githubIssueUrl",
+    prUrl: "prUrl",
     createdByUserId: "createdByUserId",
     projectId: "projectId",
   };

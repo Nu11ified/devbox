@@ -109,6 +109,7 @@ export interface IssueItem {
   githubIssueId?: number | null;
   githubIssueUrl?: string | null;
   githubSyncedAt?: string | null;
+  prUrl?: string | null;
   createdByUserId?: string | null;
   projectId?: string | null;
   thread?: {

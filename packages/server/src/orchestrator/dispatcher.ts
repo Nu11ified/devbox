@@ -233,9 +233,7 @@ export async function dispatchIssue(
         });
 
         console.log(`[dispatcher] PR created for ${issue.identifier}: ${prUrl}`);
-        await updateIssue(issue.id, { status: "review", lastError: null });
-
-        // TODO: store PR URL on issue (needs schema field)
+        await updateIssue(issue.id, { status: "review", lastError: null, prUrl });
       } else {
         console.log(`[dispatcher] no changes to commit for ${issue.identifier}`);
         await updateIssue(issue.id, {

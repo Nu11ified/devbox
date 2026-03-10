@@ -441,13 +441,28 @@ function IssueCard({
           )}
         </div>
 
-        {/* Worktree branch badge */}
-        {issue.thread?.worktreeBranch && (
-          <div className="mt-1.5">
-            <span className="inline-flex items-center gap-1 text-[9px] font-mono px-1.5 py-0.5 rounded-md bg-zinc-800/60 text-zinc-400 border border-zinc-700/30">
-              <GitBranch className="w-2.5 h-2.5" />
-              {issue.thread.worktreeBranch}
-            </span>
+        {/* Worktree branch badge + PR link */}
+        {(issue.thread?.worktreeBranch || issue.prUrl) && (
+          <div className="mt-1.5 flex items-center gap-1.5 flex-wrap">
+            {issue.thread?.worktreeBranch && (
+              <span className="inline-flex items-center gap-1 text-[9px] font-mono px-1.5 py-0.5 rounded-md bg-zinc-800/60 text-zinc-400 border border-zinc-700/30">
+                <GitBranch className="w-2.5 h-2.5" />
+                {issue.thread.worktreeBranch}
+              </span>
+            )}
+            {issue.prUrl && (
+              <a
+                href={issue.prUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1 text-[9px] font-mono px-1.5 py-0.5 rounded-md bg-purple-900/30 text-purple-400 border border-purple-700/30 hover:bg-purple-900/50 transition-colors"
+                title="View Pull Request"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <GitPullRequest className="w-2.5 h-2.5" />
+                PR
+              </a>
+            )}
           </div>
         )}
 
