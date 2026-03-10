@@ -13,6 +13,7 @@ import {
   ChevronDown,
   Menu,
   X,
+  Archive,
 } from "lucide-react";
 import { useState, useEffect, useRef } from "react";
 import { cn } from "@/lib/utils";
@@ -22,6 +23,7 @@ import { api } from "@/lib/api";
 const navLinks = [
   { href: "/board", label: "Board", icon: LayoutGrid },
   { href: "/projects", label: "Projects", icon: FolderOpen },
+  { href: "/archive", label: "Archive", icon: Archive },
   { href: "/plugins", label: "Plugins", icon: Puzzle },
   { href: "/settings", label: "Settings", icon: Settings },
 ];
