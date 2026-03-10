@@ -38,6 +38,12 @@ issuesRouter.post("/", async (req, res) => {
     return;
   }
 
+  // Auto-set createdByUserId from authenticated session
+  const user = (req as any).user;
+  if (user?.id && !req.body.createdByUserId) {
+    req.body.createdByUserId = user.id;
+  }
+
   try {
     const row = await insertIssue(req.body);
     res.status(201).json(row);
