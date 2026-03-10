@@ -598,6 +598,17 @@ class PatchworkAPI {
     return request<PluginItem[]>("/api/plugins/user/installed");
   }
 
+  async installPlugin(id: string): Promise<{ ok: boolean }> {
+    return request<{ ok: boolean }>(`/api/plugins/${id}/install`, {
+      method: "POST",
+    });
+  }
+
+  async uninstallPlugin(id: string): Promise<{ ok: boolean }> {
+    return request<{ ok: boolean }>(`/api/plugins/${id}/install`, {
+      method: "DELETE",
+    });
+  }
 }
 
 export const api = new PatchworkAPI();

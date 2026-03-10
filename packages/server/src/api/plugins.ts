@@ -87,5 +87,45 @@ export function pluginsRouter(): Router {
     }
   });
 
+  // Install a plugin for the current user
+  router.post("/:id/install", async (req, res) => {
+    try {
+      const userId = (req as any).user?.id;
+      if (!userId) return res.status(401).json({ error: "Authentication required" });
+
+      const plugin = await prisma.plugin.findUnique({ where: { id: req.params.id } });
+      if (!plugin) return res.status(404).json({ error: "Plugin not found" });
+
+      const existing = await prisma.installedPlugin.findUnique({
+        where: { userId_pluginId: { userId, pluginId: plugin.id } },
+      });
+      if (existing) return res.json({ ok: true, alreadyInstalled: true });
+
+      await prisma.installedPlugin.create({
+        data: { userId, pluginId: plugin.id, config: req.body?.config ?? {} },
+      });
+
+      res.json({ ok: true });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Uninstall a plugin for the current user
+  router.delete("/:id/install", async (req, res) => {
+    try {
+      const userId = (req as any).user?.id;
+      if (!userId) return res.status(401).json({ error: "Authentication required" });
+
+      await prisma.installedPlugin
+        .delete({ where: { userId_pluginId: { userId, pluginId: req.params.id } } })
+        .catch(() => {});
+
+      res.json({ ok: true });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   return router;
 }

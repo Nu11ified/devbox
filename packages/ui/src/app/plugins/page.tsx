@@ -7,6 +7,8 @@ import {
   Search,
   Filter,
   X,
+  Check,
+  Download,
   BadgeCheck,
   ExternalLink,
 } from "lucide-react";
@@ -37,6 +39,7 @@ export default function PluginsPage() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [activeCategory, setActiveCategory] = useState<string | null>(null);
+  const [toggling, setToggling] = useState<Set<string>>(new Set());
 
   const fetchPlugins = useCallback(async () => {
     try {
@@ -53,7 +56,40 @@ export default function PluginsPage() {
     fetchPlugins();
   }, [fetchPlugins]);
 
+  async function handleToggle(plugin: PluginItem) {
+    setToggling((prev) => new Set(prev).add(plugin.id));
+    try {
+      if (plugin.installed) {
+        await api.uninstallPlugin(plugin.id);
+      } else {
+        await api.installPlugin(plugin.id);
+      }
+      setPlugins((prev) =>
+        prev.map((p) =>
+          p.id === plugin.id
+            ? {
+                ...p,
+                installed: !p.installed,
+                installCount: p.installed
+                  ? p.installCount - 1
+                  : p.installCount + 1,
+              }
+            : p
+        )
+      );
+    } catch (err) {
+      console.error("Failed to toggle plugin:", err);
+    } finally {
+      setToggling((prev) => {
+        const next = new Set(prev);
+        next.delete(plugin.id);
+        return next;
+      });
+    }
+  }
+
   const categories = Array.from(new Set(plugins.map((p) => p.category)));
+  const installedCount = plugins.filter((p) => p.installed).length;
 
   const filtered = plugins.filter((p) => {
     if (activeCategory && p.category !== activeCategory) return false;
@@ -84,11 +120,15 @@ export default function PluginsPage() {
           <h1 className="text-2xl font-semibold tracking-tight">Plugins</h1>
           <p className="text-sm text-muted-foreground/60 mt-1">
             Browse plugins from the Anthropic Claude Code marketplace.
-            Plugins are automatically available to your agents via the SDK.
+            Install plugins to enable them for your agents.
           </p>
           <div className="flex items-center gap-3 mt-3">
             <span className="text-xs font-mono text-muted-foreground/50">
-              {plugins.length} plugins from Anthropic marketplace
+              {plugins.length} available
+            </span>
+            <span className="text-xs text-muted-foreground/30">|</span>
+            <span className="text-xs font-mono text-primary/70">
+              {installedCount} installed
             </span>
           </div>
         </div>
@@ -149,7 +189,12 @@ export default function PluginsPage() {
         {/* Plugin grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {filtered.map((plugin) => (
-            <PluginCard key={plugin.id} plugin={plugin} />
+            <PluginCard
+              key={plugin.id}
+              plugin={plugin}
+              toggling={toggling.has(plugin.id)}
+              onToggle={() => handleToggle(plugin)}
+            />
           ))}
         </div>
 
@@ -165,12 +210,27 @@ export default function PluginsPage() {
   );
 }
 
-function PluginCard({ plugin }: { plugin: PluginItem }) {
+function PluginCard({
+  plugin,
+  toggling,
+  onToggle,
+}: {
+  plugin: PluginItem;
+  toggling: boolean;
+  onToggle: () => void;
+}) {
   const catColor =
     CATEGORY_COLORS[plugin.category] || CATEGORY_COLORS.general;
 
   return (
-    <div className="group relative flex flex-col rounded-xl border border-border/30 bg-card/50 hover:border-border/60 hover:bg-card/80 transition-all duration-200">
+    <div
+      className={cn(
+        "group relative flex flex-col rounded-xl border transition-all duration-200",
+        plugin.installed
+          ? "border-primary/20 bg-primary/[0.02]"
+          : "border-border/30 bg-card/50 hover:border-border/60 hover:bg-card/80"
+      )}
+    >
       <div className="p-4 flex-1">
         {/* Top row: icon + category badge */}
         <div className="flex items-start justify-between mb-3">
@@ -220,21 +280,50 @@ function PluginCard({ plugin }: { plugin: PluginItem }) {
 
       {/* Footer */}
       <div className="px-4 py-3 border-t border-border/20 flex items-center justify-between">
-        <span className="text-[10px] font-mono text-muted-foreground/30">
-          by {plugin.author}
-        </span>
+        <div className="flex items-center gap-3">
+          <span className="text-[10px] font-mono text-muted-foreground/30">
+            by {plugin.author}
+          </span>
+          {plugin.homepage && (
+            <a
+              href={plugin.homepage}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-1 text-[10px] text-muted-foreground/40 hover:text-muted-foreground/70 transition-colors"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <ExternalLink className="h-3 w-3" />
+            </a>
+          )}
+        </div>
 
-        {plugin.homepage && (
-          <a
-            href={plugin.homepage}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center gap-1 text-[10px] text-muted-foreground/40 hover:text-muted-foreground/70 transition-colors"
-          >
-            <ExternalLink className="h-3 w-3" />
-            Source
-          </a>
-        )}
+        <button
+          onClick={onToggle}
+          disabled={toggling}
+          className={cn(
+            "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all duration-200",
+            toggling && "opacity-50 cursor-not-allowed",
+            plugin.installed
+              ? "text-primary/70 bg-primary/10 hover:bg-red-500/10 hover:text-red-400 group-hover:[&]:bg-red-500/10 group-hover:[&]:text-red-400"
+              : "text-foreground/70 bg-foreground/5 hover:bg-primary/10 hover:text-primary"
+          )}
+        >
+          {toggling ? (
+            <Loader2 className="h-3 w-3 animate-spin" />
+          ) : plugin.installed ? (
+            <>
+              <Check className="h-3 w-3 group-hover:hidden" />
+              <X className="h-3 w-3 hidden group-hover:block" />
+              <span className="group-hover:hidden">Installed</span>
+              <span className="hidden group-hover:inline">Remove</span>
+            </>
+          ) : (
+            <>
+              <Download className="h-3 w-3" />
+              Install
+            </>
+          )}
+        </button>
       </div>
     </div>
   );
