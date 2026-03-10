@@ -26,6 +26,10 @@ import {
 } from "../types.js";
 import type { AdapterError } from "../types.js";
 import { classifyTool } from "./classify-tool.js";
+import { getSubagentDefinitions } from "./subagents.js";
+import { createAgentHooks } from "./hooks.js";
+import { createPatchworkMcpServer } from "./custom-tools.js";
+import { setupWorkspaceClaudeConfig } from "./workspace-setup.js";
 
 interface PendingRequest {
   requestId: string;
@@ -39,12 +43,17 @@ interface SessionState {
     githubToken?: string;
     workspacePath?: string;
     userId?: string;
+    projectId?: string;
   };
   abortController: AbortController;
   pendingRequests: Map<string, PendingRequest>;
   activeQuery: ReturnType<typeof query> | null;
   /** When true, all tools are auto-approved for this session */
   autoApproveAll: boolean;
+  /** File checkpoint UUIDs for rewind support */
+  checkpoints: string[];
+  /** Current todo items tracked via TodoWrite tool */
+  todos: Map<string, { content: string; status: string }>;
 }
 
 export class ClaudeCodeAdapter implements ProviderAdapterShape {
@@ -54,6 +63,10 @@ export class ClaudeCodeAdapter implements ProviderAdapterShape {
     supportsApprovals: true,
     supportsPlanMode: true,
     supportsResume: true,
+    supportsSubagents: true,
+    supportsFileCheckpointing: true,
+    supportsCustomTools: true,
+    supportsTodoTracking: true,
   };
 
   private sessions = new Map<string, SessionState>();
@@ -111,6 +124,7 @@ export class ClaudeCodeAdapter implements ProviderAdapterShape {
         githubToken: input.githubToken,
         workspacePath: input.workspacePath,
         userId: input.userId,
+        projectId: input.projectId,
       };
 
       const state: SessionState = {
@@ -119,6 +133,8 @@ export class ClaudeCodeAdapter implements ProviderAdapterShape {
         pendingRequests: new Map(),
         activeQuery: null,
         autoApproveAll: false,
+        checkpoints: [],
+        todos: new Map(),
       };
 
       self.sessions.set(input.threadId as string, state);
@@ -215,7 +231,11 @@ export class ClaudeCodeAdapter implements ProviderAdapterShape {
       });
 
       // Fire off the Agent SDK query in the background
-      self.runAgentQuery(state, input.text, turnId, input.model, input.effort).catch((err) => {
+      self.runAgentQuery(state, input.text, turnId, input.model, input.effort, {
+        forkSession: input.forkSession,
+        continueSession: input.continueSession,
+        outputFormat: input.outputFormat,
+      }).catch((err) => {
         self.enqueue(
           self.makeEnvelope("runtime.error", input.threadId, {
             message: err?.message ?? String(err),
@@ -282,6 +302,11 @@ export class ClaudeCodeAdapter implements ProviderAdapterShape {
     turnId: TurnId,
     model?: string,
     effort?: string,
+    extra?: {
+      forkSession?: boolean;
+      continueSession?: boolean;
+      outputFormat?: { type: "json_schema"; schema: Record<string, unknown> };
+    },
   ): Promise<void> {
     const threadId = state.session.threadId;
     const isFullAccess = state.session.runtimeMode === "full-access";
@@ -302,6 +327,13 @@ export class ClaudeCodeAdapter implements ProviderAdapterShape {
       env.GITHUB_TOKEN = state.session.githubToken;
     }
 
+    // Secure deployment: Support credential proxying via ANTHROPIC_BASE_URL.
+    // When set, the SDK routes API calls through a proxy that injects credentials,
+    // so the agent container never sees the actual API key.
+    if (process.env.ANTHROPIC_BASE_URL) {
+      env.ANTHROPIC_BASE_URL = process.env.ANTHROPIC_BASE_URL;
+    }
+
     const cwd = state.session.workspacePath || "/workspace";
     if (!existsSync(cwd)) {
       mkdirSync(cwd, { recursive: true });
@@ -309,6 +341,27 @@ export class ClaudeCodeAdapter implements ProviderAdapterShape {
 
     // Write installed plugin instructions to CLAUDE.md in the workspace
     await this.writePluginInstructions(cwd, state.session.userId);
+
+    // Set up .claude/ directory with skills, slash commands, and settings
+    try {
+      let projectMeta: { name?: string; repo?: string; branch?: string } = {};
+      if (state.session.projectId) {
+        const project = await prisma.project.findUnique({
+          where: { id: state.session.projectId },
+          select: { name: true, repo: true, branch: true },
+        });
+        if (project) {
+          projectMeta = { name: project.name, repo: project.repo ?? undefined, branch: project.branch ?? undefined };
+        }
+      }
+      setupWorkspaceClaudeConfig(cwd, {
+        projectName: projectMeta.name,
+        repo: projectMeta.repo,
+        branch: projectMeta.branch,
+      });
+    } catch (err: any) {
+      console.error("[claude-adapter] Failed to set up workspace config:", err.message);
+    }
 
     // Enable agent teams feature flag
     env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS = "1";
@@ -335,9 +388,54 @@ export class ClaudeCodeAdapter implements ProviderAdapterShape {
       abortController: state.abortController,
       env,
       includePartialMessages: true,
-      // Don't load user/project settings — our adapter controls permissions
+      // Load project settings (.claude/ directory) for skills, commands, settings
       settingSources: ["project"],
+      // File checkpointing: enables rewindFiles() for undo support
+      enableFileCheckpointing: true,
     };
+
+    // --- Subagents ---
+    // Pre-defined specialist agents the main agent can dispatch via the Agent tool
+    opts.agents = getSubagentDefinitions(cwd);
+
+    // --- Programmatic hooks ---
+    // Intercept tool execution for audit logging, dangerous command blocking, and notifications
+    const hookCtx = {
+      threadId,
+      turnId,
+      enqueue: this.enqueue.bind(this),
+      makeEnvelope: this.makeEnvelope.bind(this),
+    };
+    opts.hooks = createAgentHooks(hookCtx);
+
+    // --- Custom tools via MCP server ---
+    // Expose Patchwork-specific tools (project info, issue management, etc.)
+    try {
+      const mcpServer = await createPatchworkMcpServer({
+        threadId: threadId as string,
+        projectId: state.session.projectId,
+        userId: state.session.userId,
+        workspacePath: cwd,
+      });
+      if (mcpServer) {
+        opts.mcpServers = [mcpServer];
+      }
+    } catch (err: any) {
+      console.log(`[claude-adapter] Custom tools not available: ${err.message}`);
+    }
+
+    // --- Session fork/continue ---
+    if (extra?.forkSession) {
+      opts.forkSession = true;
+    }
+    if (extra?.continueSession) {
+      opts.continue = true;
+    }
+
+    // --- Structured outputs ---
+    if (extra?.outputFormat) {
+      opts.outputFormat = extra.outputFormat;
+    }
 
     // Only set bypass flags when NOT running as root (root can't use them)
     if (isFullAccess && !isRoot) {
@@ -348,15 +446,16 @@ export class ClaudeCodeAdapter implements ProviderAdapterShape {
     if (isFullAccess) {
       opts.allowedTools = [
         "Read", "Edit", "Write", "Bash", "Glob", "Grep",
-        "WebSearch", "WebFetch", "TodoWrite", "Agent",
+        "WebSearch", "WebFetch", "TodoWrite", "Agent", "Skill",
       ];
     }
 
-    if (state.session.resumeCursor) {
+    if (state.session.resumeCursor && !extra?.forkSession) {
       opts.resume = state.session.resumeCursor;
     }
 
     // Wire up approval callback for approval-required mode (plan)
+    // Also handles AskUserQuestion — surfaces clarifying questions to the UI
     if (permissionMode === "plan") {
       const self = this;
       opts.canUseTool = async (
@@ -371,7 +470,63 @@ export class ClaudeCodeAdapter implements ProviderAdapterShape {
 
         const requestId = context.toolUseID || randomUUID();
 
-        // Emit request.opened to the UI
+        // --- AskUserQuestion handling ---
+        // When the agent wants to ask the user a clarifying question,
+        // we surface it as an interactive prompt in the UI
+        if (toolName === "AskUserQuestion") {
+          const questions = (input.questions as Array<{
+            question: string;
+            options: Array<{ label: string; value: string }>;
+          }>) ?? [];
+
+          if (questions.length > 0) {
+            const q = questions[0]; // Surface the first question
+            await self.enqueue(
+              self.makeEnvelope("ask_user", threadId, {
+                turnId,
+                requestId,
+                question: q.question,
+                options: q.options ?? [],
+              }, turnId)
+            );
+          }
+
+          // Still route through normal approval flow for the answer
+          await self.enqueue(
+            self.makeEnvelope("request.opened", threadId, {
+              requestId,
+              toolName,
+              toolCategory: "dynamic_tool_call",
+              description: "Agent is asking a question",
+              input,
+            }, turnId)
+          );
+
+          const deferred = Effect.runSync(Deferred.make<ApprovalDecision, never>());
+          state.pendingRequests.set(requestId, { requestId, deferred });
+
+          const decision = await Effect.runPromise(Deferred.await(deferred));
+          state.pendingRequests.delete(requestId);
+
+          await self.enqueue(
+            self.makeEnvelope("request.resolved", threadId, {
+              requestId,
+              decision: decision.type,
+            }, turnId)
+          );
+
+          if (decision.type === "deny") {
+            return { behavior: "deny" as const, message: decision.reason ?? "User declined" };
+          }
+
+          // For AskUserQuestion, the answer is passed in the reason field
+          return {
+            behavior: "allow" as const,
+            updatedInput: input,
+          };
+        }
+
+        // --- Standard approval flow ---
         await self.enqueue(
           self.makeEnvelope("request.opened", threadId, {
             requestId,
@@ -382,14 +537,12 @@ export class ClaudeCodeAdapter implements ProviderAdapterShape {
           }, turnId)
         );
 
-        // Create deferred and wait for user decision
         const deferred = Effect.runSync(Deferred.make<ApprovalDecision, never>());
         state.pendingRequests.set(requestId, { requestId, deferred });
 
         const decision = await Effect.runPromise(Deferred.await(deferred));
         state.pendingRequests.delete(requestId);
 
-        // Emit request.resolved
         await self.enqueue(
           self.makeEnvelope("request.resolved", threadId, {
             requestId,
@@ -410,7 +563,7 @@ export class ClaudeCodeAdapter implements ProviderAdapterShape {
       };
     }
 
-    console.log(`[claude-adapter] Starting query: model=${opts.model} cwd=${opts.cwd} permissionMode=${opts.permissionMode}`);
+    console.log(`[claude-adapter] Starting query: model=${opts.model} cwd=${opts.cwd} permissionMode=${opts.permissionMode} agents=${(opts.agents as any[])?.length ?? 0} hooks=true checkpointing=true`);
 
     const q = query({ prompt: text, options: opts as any });
     state.activeQuery = q;
@@ -472,6 +625,54 @@ export class ClaudeCodeAdapter implements ProviderAdapterShape {
               data: { resumeCursor: sdkSessionId },
             }).catch(() => {});
           }
+        }
+
+        // --- Todo tracking ---
+        // Detect TodoWrite tool usage in assistant messages and emit todo.updated events
+        if (message.type === "assistant") {
+          const betaMessage = (message as any).message;
+          if (betaMessage?.content) {
+            for (const block of betaMessage.content) {
+              if (block.type === "tool_use" && block.name === "TodoWrite") {
+                const todoInput = block.input as {
+                  todos?: Array<{ id: string; content: string; status: string }>;
+                };
+                if (todoInput.todos) {
+                  for (const todo of todoInput.todos) {
+                    state.todos.set(todo.id, {
+                      content: todo.content,
+                      status: todo.status,
+                    });
+                  }
+                  // Emit consolidated todo update
+                  const todoList = Array.from(state.todos.entries()).map(([id, t]) => ({
+                    id,
+                    content: t.content,
+                    status: t.status as "pending" | "in_progress" | "completed",
+                  }));
+                  await this.enqueue(
+                    this.makeEnvelope("todo.updated", threadId, {
+                      turnId,
+                      todos: todoList,
+                    }, turnId)
+                  );
+                }
+              }
+            }
+          }
+        }
+
+        // --- File checkpointing ---
+        // Track checkpoint UUIDs from result messages for rewind support
+        if (message.type === "result" && (message as any).checkpoint_id) {
+          const checkpointId = (message as any).checkpoint_id;
+          state.checkpoints.push(checkpointId);
+          await this.enqueue(
+            this.makeEnvelope("checkpoint.created", threadId, {
+              turnId,
+              checkpointId,
+            }, turnId)
+          );
         }
       }
 

@@ -9,7 +9,7 @@ import { Timeline, type TimelineItem } from "@/components/thread/timeline";
 import { Composer } from "@/components/thread/composer";
 import { DiffPanel } from "@/components/thread/diff-panel";
 import { TerminalDrawer, type TerminalDrawerHandle } from "@/components/thread/terminal-drawer";
-import { Loader2, Trash2, Square, GitCompareArrows, TerminalIcon, GitPullRequest, Zap, Archive, DollarSign } from "lucide-react";
+import { Loader2, Trash2, Square, GitCompareArrows, TerminalIcon, GitPullRequest, Zap, Archive, DollarSign, Undo2, GitFork } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ErrorBoundary } from "@/components/error-boundary";
 
@@ -35,6 +35,7 @@ export default function ProjectThreadDetailPage() {
   const [terminalSessionId, setTerminalSessionId] = useState<string | null>(null);
   const [costUsd, setCostUsd] = useState<number>(0);
   const [numTurns, setNumTurns] = useState<number>(0);
+  const [checkpoints, setCheckpoints] = useState<string[]>([]);
   const terminalDrawerRef = useRef<TerminalDrawerHandle>(null);
   const assistantTextRef = useRef<string>("");
   const assistantItemIdRef = useRef<string | null>(null);
@@ -253,6 +254,55 @@ export default function ProjectThreadDetailPage() {
           break;
         }
 
+        case "todo.updated": {
+          // Update or add todo progress item in timeline
+          const todoItemId = "todos-current";
+          setItems((prev) => {
+            const existing = prev.findIndex((i) => i.id === todoItemId);
+            const updated = {
+              id: todoItemId,
+              kind: "todo_progress" as const,
+              todos: e.payload.todos,
+            };
+            if (existing >= 0) {
+              const next = [...prev];
+              next[existing] = updated;
+              return next;
+            }
+            return [...prev, updated];
+          });
+          break;
+        }
+
+        case "checkpoint.created": {
+          setCheckpoints((prev) => [...prev, e.payload.checkpointId]);
+          break;
+        }
+
+        case "ask_user": {
+          // Surface agent's clarifying question in the timeline
+          setItems((prev) => [
+            ...prev,
+            {
+              id: `ask-${e.payload.requestId}`,
+              kind: "ask_user" as const,
+              question: e.payload.question,
+              options: e.payload.options,
+              requestId: e.payload.requestId,
+            },
+          ]);
+          break;
+        }
+
+        case "runtime.warning": {
+          // Show warnings (e.g., from hooks blocking dangerous commands)
+          setItems((prev) => [
+            ...prev,
+            { id: `warn-${Date.now()}`, kind: "error", content: `Warning: ${e.payload.message}` },
+          ]);
+          break;
+        }
+
         case "runtime.error": {
           setItems((prev) => [
             ...prev,
@@ -448,6 +498,38 @@ export default function ProjectThreadDetailPage() {
             <TerminalIcon className="h-3 w-3" />
             Terminal
           </button>
+          {checkpoints.length > 0 && !running && (
+            <button
+              onClick={() => {
+                const last = checkpoints[checkpoints.length - 1];
+                if (last) {
+                  send({ type: "thread.rewindFiles", checkpointId: last });
+                  setCheckpoints((prev) => prev.slice(0, -1));
+                }
+              }}
+              className="flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-mono text-orange-500/70 hover:bg-orange-500/10 transition-colors"
+              title={`Rewind to last checkpoint (${checkpoints.length} available)`}
+            >
+              <Undo2 className="h-3 w-3" />
+              Rewind
+            </button>
+          )}
+          {!running && (
+            <button
+              onClick={() => {
+                const text = prompt("Enter a message to fork from this point:");
+                if (text) {
+                  send({ type: "thread.forkSession", text });
+                  setRunning(true);
+                }
+              }}
+              className="flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-mono text-violet-500/70 hover:bg-violet-500/10 transition-colors"
+              title="Fork session — branch from current state"
+            >
+              <GitFork className="h-3 w-3" />
+              Fork
+            </button>
+          )}
           {thread?.repo && (
             <button
               onClick={handleCreatePR}

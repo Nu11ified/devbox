@@ -4,11 +4,17 @@ import { useRef, useEffect } from "react";
 import { MessageBubble } from "./message-bubble";
 import { ApprovalCard } from "./approval-card";
 import { WorkItem } from "./work-item";
-import { Bot } from "lucide-react";
+import { Bot, CheckCircle2, Circle, Loader2, HelpCircle } from "lucide-react";
+
+export interface TodoItem {
+  id: string;
+  content: string;
+  status: "pending" | "in_progress" | "completed";
+}
 
 export interface TimelineItem {
   id: string;
-  kind: "user_message" | "assistant_text" | "work_item" | "approval_request" | "error";
+  kind: "user_message" | "assistant_text" | "work_item" | "approval_request" | "error" | "todo_progress" | "ask_user";
   content?: string;
   streaming?: boolean;
   toolName?: string;
@@ -21,6 +27,11 @@ export interface TimelineItem {
   description?: string;
   resolved?: boolean;
   decision?: string;
+  /** Todo tracking */
+  todos?: TodoItem[];
+  /** AskUserQuestion */
+  question?: string;
+  options?: Array<{ label: string; value: string }>;
 }
 
 interface TimelineProps {
@@ -87,6 +98,62 @@ export function Timeline({ items, onApprove }: TimelineProps) {
                   decision={item.decision}
                   onApprove={onApprove}
                 />
+              );
+            case "todo_progress":
+              return (
+                <div key={item.id} className="flex gap-3 items-start max-w-3xl mx-auto">
+                  <div className="w-7 h-7 rounded-full bg-violet-500/10 flex items-center justify-center shrink-0">
+                    <CheckCircle2 className="h-3.5 w-3.5 text-violet-500/60" />
+                  </div>
+                  <div className="bg-violet-500/5 border border-violet-500/20 rounded-lg px-3 py-2 flex-1">
+                    <div className="text-[10px] font-mono text-violet-400/70 mb-1.5">Progress</div>
+                    <div className="space-y-1">
+                      {(item.todos ?? []).map((todo) => (
+                        <div key={todo.id} className="flex items-center gap-2 text-xs">
+                          {todo.status === "completed" ? (
+                            <CheckCircle2 className="h-3 w-3 text-green-500 shrink-0" />
+                          ) : todo.status === "in_progress" ? (
+                            <Loader2 className="h-3 w-3 text-amber-500 animate-spin shrink-0" />
+                          ) : (
+                            <Circle className="h-3 w-3 text-zinc-600 shrink-0" />
+                          )}
+                          <span className={
+                            todo.status === "completed"
+                              ? "text-zinc-400 line-through"
+                              : todo.status === "in_progress"
+                              ? "text-amber-400"
+                              : "text-zinc-500"
+                          }>
+                            {todo.content}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              );
+            case "ask_user":
+              return (
+                <div key={item.id} className="flex gap-3 items-start max-w-3xl mx-auto">
+                  <div className="w-7 h-7 rounded-full bg-blue-500/10 flex items-center justify-center shrink-0">
+                    <HelpCircle className="h-3.5 w-3.5 text-blue-500/60" />
+                  </div>
+                  <div className="bg-blue-500/5 border border-blue-500/20 rounded-lg px-3 py-2 flex-1">
+                    <p className="text-sm text-blue-300 mb-2">{item.question}</p>
+                    {(item.options ?? []).length > 0 && (
+                      <div className="flex flex-wrap gap-1.5">
+                        {item.options!.map((opt, i) => (
+                          <span
+                            key={i}
+                            className="text-[11px] px-2 py-0.5 rounded-md bg-blue-500/10 text-blue-400 border border-blue-500/20"
+                          >
+                            {opt.label}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
               );
             case "error":
               return (

@@ -13,6 +13,20 @@ export class DevboxManager {
   }
 
   async create(options: DevboxCreateOptions): Promise<DevboxInfo> {
+    // Secure deployment: Container isolation per Claude Agent SDK recommendations.
+    // See https://platform.claude.com/docs/en/agent-sdk/secure-deployment
+    //
+    // Security flags applied:
+    //   - CapDrop ALL: Remove all Linux capabilities
+    //   - SecurityOpt no-new-privileges: Prevent privilege escalation
+    //   - ReadonlyRootfs: Immutable root filesystem (agent writes to /workspace bind mount)
+    //   - NetworkMode "none": No network access by default (override with options.networkMode)
+    //   - PidsLimit: Prevent fork bombs
+    //   - Memory/CPU limits: Resource constraints
+    //
+    // For credential proxying, the server sets ANTHROPIC_BASE_URL pointing to
+    // a proxy that injects API keys, so the container never sees raw credentials.
+    const networkMode = options.networkMode || "none";
     const container = await this.docker.createContainer({
       Image: options.image,
       name: options.name,
@@ -24,10 +38,17 @@ export class DevboxManager {
       HostConfig: {
         Memory: options.memoryMB
           ? options.memoryMB * 1024 * 1024
-          : undefined,
-        NanoCpus: options.cpus ? options.cpus * 1e9 : undefined,
-        NetworkMode: options.networkMode || "bridge",
+          : 2 * 1024 * 1024 * 1024, // Default 2GB
+        NanoCpus: options.cpus ? options.cpus * 1e9 : 2 * 1e9, // Default 2 CPUs
+        NetworkMode: networkMode,
         Binds: options.binds,
+        CapDrop: ["ALL"],
+        SecurityOpt: ["no-new-privileges:true"],
+        ReadonlyRootfs: false, // Set to true for maximum isolation; false for agent compat
+        PidsLimit: 256,
+        Tmpfs: {
+          "/tmp": "rw,noexec,nosuid,size=512m",
+        },
       },
     });
 

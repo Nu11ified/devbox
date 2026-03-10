@@ -232,6 +232,53 @@ async function handleCommand(
       break;
     }
 
+    case "thread.rewindFiles": {
+      // Rewind file changes to a specific checkpoint
+      // Uses the SDK's rewindFiles() function if available
+      try {
+        const sdk = await import("@anthropic-ai/claude-agent-sdk");
+        const rewindFiles = (sdk as any).rewindFiles;
+        if (rewindFiles && message.checkpointId) {
+          await rewindFiles(message.checkpointId);
+          ws.send(JSON.stringify({
+            type: "thread.rewindComplete",
+            checkpointId: message.checkpointId,
+          }));
+        } else {
+          ws.send(JSON.stringify({
+            type: "thread.error",
+            error: "rewindFiles not available or missing checkpointId",
+          }));
+        }
+      } catch (err: any) {
+        ws.send(JSON.stringify({
+          type: "thread.error",
+          error: `Rewind failed: ${err.message}`,
+        }));
+      }
+      break;
+    }
+
+    case "thread.forkSession": {
+      // Fork the session — next sendTurn will use forkSession: true
+      const creds = await resolveUserCredentials(userId);
+      await Effect.runPromise(
+        providerService.ensureSession(tid, creds)
+      );
+
+      const result = await Effect.runPromise(
+        providerService.sendTurn({
+          threadId: tid,
+          text: message.text ?? "Continue from this point.",
+          model: message.model,
+          effort: message.effort,
+          forkSession: true,
+        })
+      );
+      ws.send(JSON.stringify({ type: "thread.turn.started", turnId: result.turnId }));
+      break;
+    }
+
     case "thread.terminal.start": {
       // Check if this thread already has a PTY session
       let session = ptyManager.getForThread(threadId);

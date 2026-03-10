@@ -3,6 +3,11 @@
 # Multi-stage build: stage 1 builds the sidecar, stage 2 creates the runtime image.
 # Prerequisites: run `npm run build -w packages/sidecar` before building, or
 # rely on stage 1 to build it from source.
+#
+# Security: This image runs untrusted agent code. Container isolation is enforced
+# at runtime via Docker flags (see docker-compose or devbox manager):
+#   --cap-drop ALL --security-opt no-new-privileges:true --network none
+# See: https://platform.claude.com/docs/en/agent-sdk/secure-deployment
 
 # --- Stage 1: Build the sidecar ---
 FROM oven/bun:1 AS builder
@@ -50,6 +55,17 @@ EXPOSE 9999
 # Git configuration for commits inside devbox
 RUN git config --system user.email "patchwork@devbox" && \
     git config --system user.name "Patchwork Devbox"
+
+# Security: Create a non-root user for running agent workloads.
+# The agent process should NOT run as root inside the container.
+# Container runtime flags (--cap-drop ALL, --network none, etc.) are
+# applied by the DevboxManager when creating containers.
+RUN groupadd --gid 1000 agent && \
+    useradd --uid 1000 --gid agent --shell /bin/bash --create-home agent && \
+    chown -R agent:agent /workspace
+
+# Switch to non-root user for agent execution
+USER agent
 
 # Default command: start the sidecar
 CMD ["node", "/opt/sidecar/dist/index.js"]

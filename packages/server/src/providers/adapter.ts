@@ -12,6 +12,10 @@ export interface ProviderCapabilities {
   supportsApprovals: boolean;
   supportsPlanMode: boolean;
   supportsResume: boolean;
+  supportsSubagents?: boolean;
+  supportsFileCheckpointing?: boolean;
+  supportsCustomTools?: boolean;
+  supportsTodoTracking?: boolean;
 }
 
 export interface SessionStartInput {
@@ -27,6 +31,7 @@ export interface SessionStartInput {
   repo?: string;
   branch?: string;
   userId?: string;
+  projectId?: string;
 }
 
 export type EffortLevel = "low" | "medium" | "high" | "max";
@@ -37,6 +42,15 @@ export interface SendTurnInput {
   attachments?: Array<{ type: "file"; path: string }>;
   model?: string;
   effort?: EffortLevel;
+  /** Fork the session to create a branch from the current conversation */
+  forkSession?: boolean;
+  /** Continue from the most recent session (alternative to resume cursor) */
+  continueSession?: boolean;
+  /** Request structured JSON output conforming to a schema */
+  outputFormat?: {
+    type: "json_schema";
+    schema: Record<string, unknown>;
+  };
 }
 
 export interface ProviderSession {

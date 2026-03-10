@@ -95,6 +95,7 @@ export class ProviderService {
         repo: input.repo,
         branch: input.branch,
         userId: input.userId,
+        projectId: input.projectId,
       });
 
       yield* Effect.tryPromise({
@@ -181,6 +182,7 @@ export class ProviderService {
         repo: thread.repo ?? undefined,
         branch: thread.branch ?? undefined,
         resumeCursor,
+        projectId: thread.projectId ?? undefined,
       });
 
       // Update DB status

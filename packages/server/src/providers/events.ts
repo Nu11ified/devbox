@@ -42,7 +42,9 @@ export type ToolCategory =
   | "file_change"
   | "file_read"
   | "mcp_tool_call"
-  | "dynamic_tool_call";
+  | "dynamic_tool_call"
+  | "todo_tracking"
+  | "subagent";
 
 export interface ItemStartedPayload {
   turnId: TurnId;
@@ -108,6 +110,29 @@ export interface DiffUpdatedPayload {
   files: DiffFile[];
 }
 
+export interface TodoUpdatedPayload {
+  turnId: TurnId;
+  todos: TodoItem[];
+}
+
+export interface TodoItem {
+  id: string;
+  content: string;
+  status: "pending" | "in_progress" | "completed";
+}
+
+export interface CheckpointCreatedPayload {
+  turnId: TurnId;
+  checkpointId: string;
+}
+
+export interface AskUserPayload {
+  turnId: TurnId;
+  requestId: string;
+  question: string;
+  options: Array<{ label: string; value: string }>;
+}
+
 // Discriminated Union
 export type ProviderRuntimeEvent =
   | { type: "session.started"; payload: SessionStartedPayload }
@@ -123,7 +148,10 @@ export type ProviderRuntimeEvent =
   | { type: "request.resolved"; payload: RequestResolvedPayload }
   | { type: "runtime.error"; payload: RuntimeErrorPayload }
   | { type: "runtime.warning"; payload: RuntimeWarningPayload }
-  | { type: "diff.updated"; payload: DiffUpdatedPayload };
+  | { type: "diff.updated"; payload: DiffUpdatedPayload }
+  | { type: "todo.updated"; payload: TodoUpdatedPayload }
+  | { type: "checkpoint.created"; payload: CheckpointCreatedPayload }
+  | { type: "ask_user"; payload: AskUserPayload };
 
 // Envelope wrapping each event with metadata
 export interface ProviderEventEnvelope {
