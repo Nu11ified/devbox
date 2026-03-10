@@ -9,7 +9,7 @@ import { Timeline, type TimelineItem } from "@/components/thread/timeline";
 import { Composer } from "@/components/thread/composer";
 import { DiffPanel } from "@/components/thread/diff-panel";
 import { TerminalDrawer, type TerminalDrawerHandle } from "@/components/thread/terminal-drawer";
-import { Loader2, Trash2, Square, GitCompareArrows, TerminalIcon, GitPullRequest, Zap } from "lucide-react";
+import { Loader2, Trash2, Square, GitCompareArrows, TerminalIcon, GitPullRequest, Zap, Archive } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ErrorBoundary } from "@/components/error-boundary";
 
@@ -346,6 +346,16 @@ export default function ProjectThreadDetailPage() {
     }
   }
 
+  async function handleArchive() {
+    if (!id) return;
+    try {
+      await api.archiveThread(id);
+      router.push(`/projects/${projectId}`);
+    } catch (err) {
+      console.error("Failed to archive:", err);
+    }
+  }
+
   async function handleDelete() {
     if (!id || !confirm("Delete this thread?")) return;
     try {
@@ -440,6 +450,15 @@ export default function ProjectThreadDetailPage() {
             </button>
           )}
           <div className="w-px h-4 bg-zinc-800/40 mx-1" />
+          {!running && (
+            <button
+              onClick={handleArchive}
+              className="flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-mono text-zinc-600 hover:text-zinc-300 hover:bg-zinc-800/30 transition-colors"
+              title="Archive thread"
+            >
+              <Archive className="h-3 w-3" />
+            </button>
+          )}
           <button
             onClick={handleDelete}
             className="flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-mono text-zinc-600 hover:text-red-400 hover:bg-red-500/10 transition-colors"
