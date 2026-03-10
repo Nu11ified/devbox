@@ -120,9 +120,21 @@ export function setupThreadWebSocket(
       })
     );
 
+    // Keep-alive: ping every 25s to prevent proxy/LB timeouts
+    const pingInterval = setInterval(() => {
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.ping();
+      }
+    }, 25_000);
+
     ws.on("message", async (raw) => {
       try {
         const message = JSON.parse(String(raw));
+        // Handle client-side pings (for proxies that don't forward WS pings)
+        if (message.type === "ping") {
+          ws.send(JSON.stringify({ type: "pong" }));
+          return;
+        }
         console.log(`[thread-ws] Command: ${message.type} thread=${threadId}`);
         await handleCommand(message, threadId, authedUserId!, providerService, ws, connections);
       } catch (err: any) {
@@ -137,6 +149,7 @@ export function setupThreadWebSocket(
     });
 
     ws.on("close", () => {
+      clearInterval(pingInterval);
       console.log(`[thread-ws] Client disconnected: thread=${threadId}`);
       connections.get(threadId)?.delete(conn);
       if (connections.get(threadId)?.size === 0) {

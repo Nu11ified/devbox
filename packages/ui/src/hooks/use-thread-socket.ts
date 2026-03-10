@@ -19,6 +19,8 @@ export interface ThreadEvent {
 interface UseThreadSocketOptions {
   threadId: string | null;
   onEvent?: (event: ThreadEvent) => void;
+  /** Called when the WS reconnects after a drop — UI should re-fetch state */
+  onReconnect?: () => void;
 }
 
 /**
@@ -51,13 +53,17 @@ function isCrossOriginWs(): boolean {
   }
 }
 
-export function useThreadSocket({ threadId, onEvent }: UseThreadSocketOptions) {
+export function useThreadSocket({ threadId, onEvent, onReconnect }: UseThreadSocketOptions) {
   const wsRef = useRef<WebSocket | null>(null);
   const [connected, setConnected] = useState(false);
   const onEventRef = useRef(onEvent);
   onEventRef.current = onEvent;
+  const onReconnectRef = useRef(onReconnect);
+  onReconnectRef.current = onReconnect;
   const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const reconnectAttempt = useRef(0);
+  const hasConnectedOnce = useRef(false);
+  const pingTimer = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
     // Only connect for valid UUID thread IDs (skip "new" or other non-UUID values)
@@ -92,12 +98,31 @@ export function useThreadSocket({ threadId, onEvent }: UseThreadSocketOptions) {
 
       ws.onopen = () => {
         setConnected(true);
-        reconnectAttempt.current = 0; // Reset backoff on successful connect
+        const wasReconnect = hasConnectedOnce.current;
+        hasConnectedOnce.current = true;
+        reconnectAttempt.current = 0;
+
+        // Start client-side ping every 20s (for proxies that don't forward WS pings)
+        if (pingTimer.current) clearInterval(pingTimer.current);
+        pingTimer.current = setInterval(() => {
+          if (ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ type: "ping" }));
+          }
+        }, 20_000);
+
+        // If this is a reconnect, tell the UI to re-fetch state
+        if (wasReconnect) {
+          onReconnectRef.current?.();
+        }
       };
 
       ws.onclose = () => {
         setConnected(false);
         wsRef.current = null;
+        if (pingTimer.current) {
+          clearInterval(pingTimer.current);
+          pingTimer.current = null;
+        }
         // Auto-reconnect with exponential backoff (1s, 2s, 4s, 8s, ... max 30s)
         if (!disposed) {
           const delay = Math.min(1000 * Math.pow(2, reconnectAttempt.current), 30000);
@@ -113,6 +138,8 @@ export function useThreadSocket({ threadId, onEvent }: UseThreadSocketOptions) {
       ws.onmessage = (e) => {
         try {
           const data = JSON.parse(e.data);
+          // Ignore pong responses
+          if (data.type === "pong") return;
           onEventRef.current?.(data);
         } catch {
           // Ignore non-JSON
@@ -125,7 +152,9 @@ export function useThreadSocket({ threadId, onEvent }: UseThreadSocketOptions) {
     return () => {
       disposed = true;
       reconnectAttempt.current = 0;
+      hasConnectedOnce.current = false;
       if (reconnectTimer.current) clearTimeout(reconnectTimer.current);
+      if (pingTimer.current) clearInterval(pingTimer.current);
       wsRef.current?.close();
       wsRef.current = null;
       setConnected(false);

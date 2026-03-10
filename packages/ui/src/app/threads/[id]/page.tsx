@@ -37,81 +37,87 @@ export default function ThreadDetailPage() {
   const assistantTextRef = useRef<string>("");
   const assistantItemIdRef = useRef<string | null>(null);
 
-  useEffect(() => {
+  /** Load thread data from API and rebuild timeline items. */
+  const loadThread = useCallback(async () => {
     if (!id) return;
-    api.getThread(id)
-      .then((data: any) => {
-        setThread(data);
-        const initial: TimelineItem[] = [];
+    try {
+      const data: any = await api.getThread(id);
+      setThread(data);
+      const initial: TimelineItem[] = [];
 
-        // Build a map of events by turnId for interleaving
-        const eventsByTurn = new Map<string, any[]>();
-        for (const evt of data.events ?? []) {
-          const tid = evt.turnId ?? evt.payload?.turnId ?? "__none__";
-          if (!eventsByTurn.has(tid)) eventsByTurn.set(tid, []);
-          eventsByTurn.get(tid)!.push(evt);
+      // Build a map of events by turnId for interleaving
+      const eventsByTurn = new Map<string, any[]>();
+      for (const evt of data.events ?? []) {
+        const tid = evt.turnId ?? evt.payload?.turnId ?? "__none__";
+        if (!eventsByTurn.has(tid)) eventsByTurn.set(tid, []);
+        eventsByTurn.get(tid)!.push(evt);
+      }
+
+      // Track completed item IDs for marking work_items
+      const completedItems = new Set<string>();
+      const completedPayloads = new Map<string, any>();
+      for (const evt of data.events ?? []) {
+        if (evt.type === "item.completed") {
+          const itemId = evt.payload?.itemId;
+          if (itemId) {
+            completedItems.add(itemId);
+            completedPayloads.set(itemId, evt.payload);
+          }
         }
+      }
 
-        // Track completed item IDs for marking work_items
-        const completedItems = new Set<string>();
-        const completedPayloads = new Map<string, any>();
-        for (const evt of data.events ?? []) {
-          if (evt.type === "item.completed") {
-            const itemId = evt.payload?.itemId;
-            if (itemId) {
-              completedItems.add(itemId);
-              completedPayloads.set(itemId, evt.payload);
-            }
+      for (const turn of data.turns ?? []) {
+        // Insert tool use events that belong to this turn BEFORE the turn text
+        const turnEvents = eventsByTurn.get(turn.turnId ?? turn.id) ?? [];
+        for (const evt of turnEvents) {
+          if (evt.type === "item.started") {
+            const p = evt.payload;
+            const completed = completedItems.has(p.itemId);
+            const cp = completedPayloads.get(p.itemId);
+            initial.push({
+              id: p.itemId,
+              kind: "work_item",
+              toolName: p.toolName,
+              toolCategory: p.toolCategory,
+              input: p.input,
+              completed,
+              output: cp?.output,
+              error: cp?.error,
+            });
+          } else if (evt.type === "request.opened") {
+            const p = evt.payload;
+            initial.push({
+              id: `req-${p.requestId}`,
+              kind: "approval_request",
+              requestId: p.requestId,
+              toolName: p.toolName,
+              toolCategory: p.toolCategory,
+              description: p.description,
+              input: p.input,
+              resolved: true, // Historical requests are resolved
+            });
           }
         }
 
-        for (const turn of data.turns ?? []) {
-          // Insert tool use events that belong to this turn BEFORE the turn text
-          const turnEvents = eventsByTurn.get(turn.turnId ?? turn.id) ?? [];
-          for (const evt of turnEvents) {
-            if (evt.type === "item.started") {
-              const p = evt.payload;
-              const completed = completedItems.has(p.itemId);
-              const cp = completedPayloads.get(p.itemId);
-              initial.push({
-                id: p.itemId,
-                kind: "work_item",
-                toolName: p.toolName,
-                toolCategory: p.toolCategory,
-                input: p.input,
-                completed,
-                output: cp?.output,
-                error: cp?.error,
-              });
-            } else if (evt.type === "request.opened") {
-              const p = evt.payload;
-              initial.push({
-                id: `req-${p.requestId}`,
-                kind: "approval_request",
-                requestId: p.requestId,
-                toolName: p.toolName,
-                toolCategory: p.toolCategory,
-                description: p.description,
-                input: p.input,
-                resolved: true, // Historical requests are resolved
-              });
-            }
-          }
+        initial.push({
+          id: turn.id,
+          kind: turn.role === "user" ? "user_message" : "assistant_text",
+          content: turn.content ?? "",
+        });
+      }
 
-          initial.push({
-            id: turn.id,
-            kind: turn.role === "user" ? "user_message" : "assistant_text",
-            content: turn.content ?? "",
-          });
-        }
-
-        setItems(initial);
-        const lastTurn = (data.turns ?? []).findLast((t: any) => t.role === "assistant");
-        setRunning(lastTurn?.status === "running");
-      })
-      .catch(console.error)
-      .finally(() => setLoading(false));
+      setItems(initial);
+      const lastTurn = (data.turns ?? []).findLast((t: any) => t.role === "assistant");
+      setRunning(lastTurn?.status === "running");
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
   }, [id]);
+
+  // Load on mount
+  useEffect(() => { loadThread(); }, [loadThread]);
 
   const handleEvent = useCallback((event: ThreadEvent) => {
     if (event.type === "thread.turn.started") {
@@ -275,6 +281,7 @@ export default function ThreadDetailPage() {
   const { connected, sendTurn, interrupt, approve, stop, send } = useThreadSocket({
     threadId: id,
     onEvent: handleEvent,
+    onReconnect: loadThread,
   });
 
   const shortcuts = useMemo(
