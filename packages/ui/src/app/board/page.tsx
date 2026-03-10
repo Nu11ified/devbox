@@ -13,6 +13,7 @@ import {
   Loader2,
   GitBranch,
   Zap,
+  Archive,
 } from "lucide-react";
 import { api, type IssueItem, type CreateIssueRequest, type ProjectItem } from "@/lib/api";
 import { useApi } from "@/hooks/use-api";
@@ -510,6 +511,17 @@ function IssueCard({
             {issue.status === "review" && (
               <Button size="sm" variant="outline" className="h-5 text-[10px] px-1.5 border-zinc-700/40 text-zinc-400 hover:text-zinc-300" onClick={() => onTransition(issue.id, "done")}>
                 Done
+              </Button>
+            )}
+            {(issue.status === "done" || issue.status === "cancelled") && (
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-5 text-[10px] px-1.5 border-zinc-600/40 text-zinc-500 hover:text-zinc-300 hover:border-zinc-500/40"
+                onClick={() => onTransition(issue.id, "archived")}
+              >
+                <Archive className="h-2.5 w-2.5 mr-0.5" />
+                Archive
               </Button>
             )}
             {issue.status !== "done" && issue.status !== "cancelled" && (

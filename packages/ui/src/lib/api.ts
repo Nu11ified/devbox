@@ -110,6 +110,7 @@ export interface IssueItem {
   githubIssueUrl?: string | null;
   githubSyncedAt?: string | null;
   prUrl?: string | null;
+  archivedAt?: string | null;
   createdByUserId?: string | null;
   projectId?: string | null;
   thread?: {
@@ -117,6 +118,31 @@ export interface IssueItem {
     status: string;
     worktreeBranch: string | null;
   } | null;
+}
+
+export interface ArchiveSearchResult {
+  id: string;
+  identifier: string;
+  title: string;
+  body: string;
+  status: string;
+  priority: number;
+  repo: string;
+  archivedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+  prUrl: string | null;
+  projectId: string | null;
+  projectName: string | null;
+  threadId: string | null;
+  snippet: string | null;
+}
+
+export interface ArchiveSearchResponse {
+  results: ArchiveSearchResult[];
+  total?: number;
+  page: number;
+  limit: number;
 }
 
 export interface CreateIssueRequest {
@@ -362,6 +388,22 @@ class PatchworkAPI {
 
   async dispatchIssue(id: string): Promise<IssueItem & { thread?: { id: string; status: string; worktreeBranch: string | null } }> {
     return request<IssueItem & { thread?: { id: string; status: string; worktreeBranch: string | null } }>(`/api/issues/${id}/dispatch`, { method: "POST" });
+  }
+
+  // Archive
+  async searchArchive(params?: {
+    q?: string;
+    projectId?: string;
+    page?: number;
+    limit?: number;
+  }): Promise<ArchiveSearchResponse> {
+    const qs = new URLSearchParams();
+    if (params?.q) qs.set("q", params.q);
+    if (params?.projectId) qs.set("projectId", params.projectId);
+    if (params?.page) qs.set("page", String(params.page));
+    if (params?.limit) qs.set("limit", String(params.limit));
+    const query = qs.toString();
+    return request<ArchiveSearchResponse>(`/api/archive${query ? `?${query}` : ""}`);
   }
 
   // GitHub
