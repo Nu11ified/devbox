@@ -1,24 +1,55 @@
 import { Effect } from "effect";
-import { BUILTIN_BLUEPRINTS } from "../blueprints/definitions.js";
-import { BlueprintEngine } from "../blueprints/engine.js";
-import { PersistentBlueprintRunner } from "../blueprints/persistent-runner.js";
-import { DevboxManager } from "../devbox/manager.js";
-import { SidecarHttpClient } from "../agents/sidecar-client.js";
-import { AgentRouter } from "../agents/router.js";
-import { PatchStore } from "../patchwork/store.js";
-import { getPool, findTemplateById, updateIssue } from "../db/queries.js";
 import prisma from "../db/prisma.js";
-import type { AgentBackend } from "@patchwork/shared";
+import { updateIssue } from "../db/queries.js";
+import { createWorktree } from "../git/worktree.js";
+import { commitAllChanges, pushBranch } from "../git/pr.js";
 import type { ProviderService } from "../providers/service.js";
 import { ThreadId } from "../providers/types.js";
 
-const devboxManager = new DevboxManager();
-const engine = new BlueprintEngine();
-const patchStore = new PatchStore();
+/**
+ * Sanitize a string for use as a git branch name.
+ */
+function sanitizeBranchName(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/[^a-z0-9\-_/]/g, "-")
+    .replace(/-{2,}/g, "-")
+    .replace(/^-|-$/g, "");
+}
 
 /**
- * Dispatches a single issue: provisions a devbox, executes the blueprint,
- * and updates statuses throughout. Wrapped in try/finally for cleanup.
+ * Build the autonomous prompt that tells Claude to implement the issue
+ * without asking questions, just code.
+ */
+function buildAutonomousPrompt(issue: {
+  identifier: string;
+  title: string;
+  body: string;
+  repo: string;
+  branch: string;
+}): string {
+  return `You are working autonomously on a GitHub issue. Do NOT ask questions — just implement the solution.
+
+## Issue: ${issue.identifier} — ${issue.title}
+
+${issue.body}
+
+## Instructions
+
+1. Read the codebase to understand the relevant code
+2. Implement the fix or feature described in the issue
+3. Make sure your changes are complete and working
+4. Do NOT ask for clarification — make reasonable decisions and implement
+5. If tests exist, run them to verify your changes
+6. Keep changes focused on the issue — don't refactor unrelated code
+
+Repository: ${issue.repo} (branch: ${issue.branch})
+`;
+}
+
+/**
+ * Dispatches a single issue: creates a worktree, thread, sends an autonomous
+ * prompt, waits for completion, then auto-creates a PR.
  */
 export async function dispatchIssue(
   issue: {
@@ -31,211 +62,293 @@ export async function dispatchIssue(
     title: string;
     body: string;
     createdByUserId?: string | null;
+    projectId?: string | null;
   },
   providerService?: ProviderService
 ): Promise<void> {
-  const db = getPool();
+  if (!providerService) {
+    console.error(`[dispatcher] no providerService — cannot dispatch ${issue.identifier}`);
+    await updateIssue(issue.id, {
+      status: "open",
+      lastError: "No provider service available",
+    });
+    return;
+  }
 
-  // Resolve user subscription settings
+  // Resolve user credentials
   const userSettings = issue.createdByUserId
     ? await prisma.userSettings.findUnique({
         where: { userId: issue.createdByUserId },
       })
     : null;
 
-  // Create a thread linked to this issue via ProviderService
-  if (providerService) {
-    try {
-      const apiKey = userSettings?.anthropicApiKey ?? undefined;
-      const useSubscription = userSettings?.claudeSubscription ?? false;
+  let githubToken: string | undefined;
+  if (issue.createdByUserId) {
+    const account = await prisma.account.findFirst({
+      where: { userId: issue.createdByUserId, providerId: "github" },
+    });
+    githubToken = account?.accessToken ?? undefined;
+  }
 
-      // Look up GitHub token for the user
-      let githubToken: string | undefined;
-      if (issue.createdByUserId) {
-        const account = await prisma.account.findFirst({
-          where: { userId: issue.createdByUserId, providerId: "github" },
-        });
-        githubToken = account?.accessToken ?? undefined;
-      }
-
-      const { thread } = await Effect.runPromise(
-        providerService.createThread({
-          title: issue.title,
-          provider: "claudeCode",
-          runtimeMode: "full-access",
-          workspacePath: "/workspace",
-          useSubscription,
-          apiKey,
-          githubToken,
-          userId: issue.createdByUserId ?? undefined,
-          issueId: issue.id,
-          repo: issue.repo,
-          branch: issue.branch,
-        })
-      );
-
-      // Send the issue body as the first turn
-      await Effect.runPromise(
-        providerService.sendTurn({
-          threadId: ThreadId(thread.id),
-          text: `${issue.title}\n\n${issue.body}`,
-        })
-      );
-
-      console.log(`[dispatcher] created thread ${thread.id} for issue ${issue.identifier}`);
-    } catch (err) {
-      console.error(`[dispatcher] failed to create thread for issue ${issue.identifier}:`, err);
+  // Resolve user profile for git commit identity
+  let authorName = "Patchwork";
+  let authorEmail = "patchwork@localhost";
+  if (issue.createdByUserId) {
+    const user = await prisma.user.findUnique({
+      where: { id: issue.createdByUserId },
+    });
+    if (user) {
+      authorName = user.name ?? "Patchwork";
+      authorEmail = user.email;
     }
   }
 
-  // 1. Validate blueprint
-  const definition = BUILTIN_BLUEPRINTS.get(issue.blueprintId);
-  if (!definition) {
-    await updateIssue(issue.id, {
-      status: "open",
-      lastError: `Unknown blueprint: ${issue.blueprintId}`,
-    });
-    return;
+  const apiKey = userSettings?.anthropicApiKey ?? undefined;
+  const useSubscription = userSettings?.claudeSubscription ?? false;
+
+  // Look up the project for workspace path
+  let workspacePath = "/workspace";
+  let worktreePath: string | undefined;
+  let worktreeBranch: string | undefined;
+  let projectId = issue.projectId ?? undefined;
+
+  if (projectId) {
+    const project = await prisma.project.findUnique({ where: { id: projectId } });
+    if (project?.workspacePath) {
+      workspacePath = project.workspacePath;
+
+      // Create a git worktree for isolated work
+      worktreeBranch = `thread/issue-${sanitizeBranchName(issue.identifier)}`;
+      worktreePath = `${project.workspacePath}/../worktrees/${issue.id.slice(0, 8)}`;
+
+      try {
+        createWorktree({
+          repoDir: project.workspacePath,
+          worktreeDir: worktreePath,
+          branch: worktreeBranch,
+          baseBranch: project.branch,
+        });
+        workspacePath = worktreePath;
+        console.log(`[dispatcher] created worktree at ${worktreePath} (branch: ${worktreeBranch})`);
+      } catch (err) {
+        console.error(`[dispatcher] worktree creation failed:`, err);
+        // Fall back to project workspace
+        worktreePath = undefined;
+        worktreeBranch = undefined;
+      }
+    }
   }
 
-  // 2. Resolve template
-  let template;
-  if (issue.templateId) {
-    template = await findTemplateById(issue.templateId);
-  }
-  if (!template) {
-    template = await prisma.devboxTemplate.findFirst({
-      orderBy: { createdAt: "asc" },
-    });
-  }
-  if (!template) {
-    await updateIssue(issue.id, {
-      status: "open",
-      lastError: "No devbox template available",
-    });
-    return;
-  }
-
-  // 3. Create run row
-  const runResult = await db.query(
-    `INSERT INTO runs (blueprint_id, repo, branch, task_description, status, config)
-     VALUES ($1, $2, $3, $4, 'pending', '{}')
-     RETURNING *`,
-    [issue.blueprintId, issue.repo, issue.branch, `${issue.title}\n\n${issue.body}`]
-  );
-  const runId: string = runResult.rows[0].id;
-
-  // 4. Link issue to run
-  await updateIssue(issue.id, { runId, status: "in_progress" });
-
-  let containerId: string | null = null;
-
+  // Create thread via ProviderService
+  let threadId: string;
   try {
-    // 5. Provision devbox
-    await db.query(
-      "UPDATE runs SET status = 'provisioning', updated_at = now() WHERE id = $1",
-      [runId]
-    );
-
-    const resourceLimits = (template.resourceLimits ?? {}) as Record<string, any>;
-    const envVars = (template.envVars ?? {}) as Record<string, string>;
-    const baseImage = template.baseImage;
-    const networkPolicy = template.networkPolicy;
-    const devboxInfo = await devboxManager.create({
-      image: baseImage,
-      name: `patchwork-${issue.identifier.toLowerCase()}`,
-      env: typeof envVars === "object" ? envVars : {},
-      cpus: resourceLimits.cpus,
-      memoryMB: resourceLimits.memoryMB,
-      networkMode: networkPolicy === "egress-allowed" ? "bridge" : "none",
-    });
-    containerId = devboxInfo.containerId;
-
-    // 6. Record devbox in DB
-    await db.query(
-      `INSERT INTO devboxes (template_id, status, container_id, host, run_id, last_seen_at)
-       VALUES ($1, 'running', $2, $3, $4, now())`,
-      [template.id, devboxInfo.containerId, devboxInfo.host, runId]
-    );
-
-    // 7. Update run with devbox info
-    const devboxRow = await db.query(
-      "SELECT id FROM devboxes WHERE container_id = $1",
-      [devboxInfo.containerId]
-    );
-    await db.query(
-      "UPDATE runs SET devbox_id = $1, status = 'running', updated_at = now() WHERE id = $2",
-      [devboxRow.rows[0].id, runId]
-    );
-
-    // 8. Connect sidecar
-    const sidecar = new SidecarHttpClient(`http://${devboxInfo.host}:9999`);
-
-    // 9. Create persistent runner
-    const runner = new PersistentBlueprintRunner();
-
-    // 10. Build backend factory
-    const registeredBackends = new Map<string, AgentBackend>();
-    const agentRouter = new AgentRouter(registeredBackends);
-    const backendFactory = (role: string) =>
-      agentRouter.selectBackend(
-        {
-          description: issue.title,
-          repo: issue.repo,
-          branch: issue.branch,
-          templateId: template.id,
-          blueprintId: issue.blueprintId,
-        },
-        role
-      );
-
-    // 11. Execute blueprint
-    const result = await engine.execute(
-      definition,
-      runner,
-      runId,
-      {
-        description: `${issue.title}\n\n${issue.body}`,
+    const { thread } = await Effect.runPromise(
+      providerService.createThread({
+        title: issue.title,
+        provider: "claudeCode",
+        runtimeMode: "full-access",
+        workspacePath,
+        useSubscription,
+        apiKey,
+        githubToken,
+        userId: issue.createdByUserId ?? undefined,
+        issueId: issue.id,
         repo: issue.repo,
         branch: issue.branch,
-        templateId: template.id,
-        blueprintId: issue.blueprintId,
-        config: {
-          useSubscription: userSettings?.claudeSubscription ?? false,
-        },
-      },
-      backendFactory,
-      sidecar,
-      patchStore
+        projectId,
+        worktreePath,
+        worktreeBranch,
+      })
     );
+    threadId = thread.id;
+    console.log(`[dispatcher] created thread ${threadId} for issue ${issue.identifier}`);
+  } catch (err) {
+    console.error(`[dispatcher] failed to create thread for ${issue.identifier}:`, err);
+    await updateIssue(issue.id, {
+      status: "open",
+      lastError: `Thread creation failed: ${err instanceof Error ? err.message : String(err)}`,
+    });
+    return;
+  }
 
-    // 12. Update final statuses
-    if (result.status === "completed") {
-      await updateIssue(issue.id, { status: "review", lastError: null });
-    } else {
+  // Update issue status to in_progress
+  await updateIssue(issue.id, { status: "in_progress" });
+
+  // Send autonomous prompt
+  const prompt = buildAutonomousPrompt(issue);
+  try {
+    await Effect.runPromise(
+      providerService.sendTurn({
+        threadId: ThreadId(threadId),
+        text: prompt,
+      })
+    );
+    console.log(`[dispatcher] sent autonomous prompt for ${issue.identifier}`);
+  } catch (err) {
+    console.error(`[dispatcher] failed to send turn for ${issue.identifier}:`, err);
+    await updateIssue(issue.id, {
+      lastError: `Failed to send prompt: ${err instanceof Error ? err.message : String(err)}`,
+    });
+    return;
+  }
+
+  // Wait for turn completion by listening to the event stream
+  try {
+    await waitForTurnCompletion(providerService, threadId, issue.id);
+  } catch (err) {
+    console.error(`[dispatcher] turn wait error for ${issue.identifier}:`, err);
+    await updateIssue(issue.id, {
+      lastError: `Turn failed: ${err instanceof Error ? err.message : String(err)}`,
+    });
+    return;
+  }
+
+  // Auto-create PR if there are changes
+  if (worktreePath && worktreeBranch && githubToken) {
+    try {
+      const hasChanges = commitAllChanges({
+        cwd: worktreePath,
+        message: `${issue.identifier}: ${issue.title}\n\nAutonomous implementation by Patchwork.`,
+        authorName,
+        authorEmail,
+      });
+
+      if (hasChanges) {
+        pushBranch({
+          cwd: worktreePath,
+          branch: worktreeBranch,
+          githubToken,
+          repo: issue.repo,
+        });
+
+        // Create PR via GitHub API
+        const prUrl = await createGitHubPR({
+          repo: issue.repo,
+          head: worktreeBranch,
+          base: issue.branch,
+          title: `${issue.identifier}: ${issue.title}`,
+          body: `Automated implementation for issue ${issue.identifier}.\n\n${issue.body}\n\n---\n_Created by Patchwork_`,
+          githubToken,
+          issueIdentifier: issue.identifier,
+        });
+
+        console.log(`[dispatcher] PR created for ${issue.identifier}: ${prUrl}`);
+        await updateIssue(issue.id, { status: "review", lastError: null });
+
+        // TODO: store PR URL on issue (needs schema field)
+      } else {
+        console.log(`[dispatcher] no changes to commit for ${issue.identifier}`);
+        await updateIssue(issue.id, {
+          status: "review",
+          lastError: "Completed but no code changes were made",
+        });
+      }
+    } catch (err) {
+      console.error(`[dispatcher] PR creation failed for ${issue.identifier}:`, err);
       await updateIssue(issue.id, {
-        lastError: `Run finished with status: ${result.status}`,
+        status: "review",
+        lastError: `PR creation failed: ${err instanceof Error ? err.message : String(err)}`,
       });
     }
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    await db.query(
-      "UPDATE runs SET status = 'failed', updated_at = now() WHERE id = $1",
-      [runId]
-    );
-    await updateIssue(issue.id, { lastError: message });
-  } finally {
-    // 13. Teardown devbox
-    if (containerId) {
-      try {
-        await devboxManager.destroy(containerId);
-        await db.query(
-          "UPDATE devboxes SET status = 'destroyed' WHERE container_id = $1",
-          [containerId]
-        );
-      } catch {
-        // Best-effort cleanup
-      }
-    }
+  } else {
+    // No worktree or no GitHub token — mark as review anyway
+    await updateIssue(issue.id, { status: "review", lastError: null });
   }
+}
+
+/**
+ * Wait for the turn to complete by subscribing to the provider event stream.
+ * Resolves when turn.completed fires, rejects on runtime.error or timeout.
+ */
+function waitForTurnCompletion(
+  providerService: ProviderService,
+  threadId: string,
+  issueId: string,
+  timeoutMs = 600_000 // 10 minutes
+): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      reject(new Error("Turn timed out"));
+    }, timeoutMs);
+
+    // Poll the thread status every 5 seconds
+    const poll = setInterval(async () => {
+      try {
+        const thread = await prisma.thread.findUnique({
+          where: { id: threadId },
+          select: { status: true },
+        });
+
+        // Check the latest assistant turn
+        const lastTurn = await prisma.threadTurn.findFirst({
+          where: { threadId, role: "assistant" },
+          orderBy: { startedAt: "desc" },
+          select: { status: true },
+        });
+
+        if (lastTurn?.status === "completed") {
+          clearInterval(poll);
+          clearTimeout(timeout);
+          resolve();
+        }
+
+        // Check for error events
+        const errorEvent = await prisma.threadEvent.findFirst({
+          where: {
+            threadId,
+            type: "runtime.error",
+          },
+          orderBy: { createdAt: "desc" },
+        });
+
+        if (errorEvent && !lastTurn) {
+          clearInterval(poll);
+          clearTimeout(timeout);
+          const payload = errorEvent.payload as any;
+          reject(new Error(payload?.message ?? "Runtime error"));
+        }
+      } catch {
+        // Continue polling
+      }
+    }, 5_000);
+  });
+}
+
+/**
+ * Create a GitHub PR using the REST API.
+ */
+async function createGitHubPR(opts: {
+  repo: string;
+  head: string;
+  base: string;
+  title: string;
+  body: string;
+  githubToken: string;
+  issueIdentifier?: string;
+}): Promise<string> {
+  const response = await fetch(
+    `https://api.github.com/repos/${opts.repo}/pulls`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${opts.githubToken}`,
+        Accept: "application/vnd.github+json",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        title: opts.title,
+        body: opts.body,
+        head: opts.head,
+        base: opts.base,
+      }),
+    }
+  );
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`GitHub API error ${response.status}: ${text}`);
+  }
+
+  const data = await response.json();
+  return data.html_url;
 }
