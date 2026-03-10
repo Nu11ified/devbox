@@ -52,6 +52,7 @@ export function projectsRouter(): Router {
             },
           },
           issues: {
+            where: { status: { not: "archived" } },
             orderBy: { updatedAt: "desc" },
             select: {
               id: true,
