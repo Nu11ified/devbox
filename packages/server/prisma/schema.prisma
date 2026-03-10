@@ -169,10 +169,12 @@ model Issue {
   githubIssueUrl   String?   @map("github_issue_url")
   githubSyncedAt   DateTime? @map("github_synced_at") @db.Timestamptz
   createdByUserId  String?   @map("created_by_user_id")
+  projectId        String?   @map("project_id") @db.Uuid
 
   template DevboxTemplate? @relation(fields: [templateId], references: [id])
   run      Run?            @relation(fields: [runId], references: [id])
   createdByUser User?      @relation(fields: [createdByUserId], references: [id])
+  project  Project?        @relation(fields: [projectId], references: [id])
   thread   Thread?
 
   @@index([status])
@@ -197,9 +199,32 @@ model User {
   settings         UserSettings?
   issues           Issue[]
   threads          Thread[]
+  projects         Project[]
   installedPlugins InstalledPlugin[]
 
   @@map("user")
+}
+
+// ─── Project (workspace / repo container) ─────────────────────────
+
+model Project {
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name          String
+  repo          String
+  branch        String   @default("main")
+  devboxId      String?  @map("devbox_id")
+  workspacePath String   @map("workspace_path")
+  status        String   @default("idle")
+  userId        String   @map("user_id")
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt     DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  user    User     @relation(fields: [userId], references: [id])
+  threads Thread[]
+  issues  Issue[]
+
+  @@index([userId])
+  @@map("projects")
 }
 
 model Session {
@@ -279,13 +304,17 @@ model Thread {
   branch      String?
   devboxId    String?  @map("devbox_id")
   issueId     String?  @unique @map("issue_id") @db.Uuid
-  userId      String?  @map("user_id")
-  workspacePath String? @map("workspace_path")
-  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt   DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+  userId         String?  @map("user_id")
+  workspacePath  String?  @map("workspace_path")
+  projectId      String?  @map("project_id") @db.Uuid
+  worktreePath   String?  @map("worktree_path")
+  worktreeBranch String?  @map("worktree_branch")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt      DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
   issue    Issue?          @relation(fields: [issueId], references: [id])
   user     User?           @relation(fields: [userId], references: [id])
+  project  Project?        @relation(fields: [projectId], references: [id])
   sessions ThreadSession[]
   turns    ThreadTurn[]
   events   ThreadEvent[]
