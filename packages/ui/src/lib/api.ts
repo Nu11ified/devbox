@@ -150,6 +150,45 @@ export interface PluginDetail extends PluginItem {
   tools: unknown[];
 }
 
+export interface ProjectItem {
+  id: string;
+  name: string;
+  repo: string;
+  branch: string;
+  status: string;
+  workspacePath: string;
+  createdAt: string;
+  updatedAt: string;
+  _count?: { threads: number; issues: number };
+}
+
+export interface ProjectDetail extends ProjectItem {
+  threads: Array<{
+    id: string;
+    title: string;
+    status: string;
+    provider: string;
+    model: string | null;
+    worktreeBranch: string | null;
+    createdAt: string;
+    updatedAt: string;
+  }>;
+  issues: Array<{
+    id: string;
+    identifier: string;
+    title: string;
+    status: string;
+    priority: number;
+    labels: string[];
+  }>;
+}
+
+export interface CreateProjectRequest {
+  name: string;
+  repo: string;
+  branch?: string;
+}
+
 // ── API Client ─────────────────────────────────────────────────────
 
 // API requests are proxied through Next.js rewrites (same origin, no CORS)
@@ -413,6 +452,8 @@ class PatchworkAPI {
     issueId?: string;
     repo?: string;
     branch?: string;
+    projectId?: string;
+    worktreeBranch?: string;
   }): Promise<any> {
     return request<any>("/api/threads", {
       method: "POST",
@@ -459,6 +500,32 @@ class PatchworkAPI {
       method: "POST",
     });
     return res.ticket;
+  }
+
+  // ── Projects API ──────────────────────────────────────────────────
+  async listProjects(): Promise<ProjectItem[]> {
+    return request<ProjectItem[]>("/api/projects");
+  }
+
+  async getProject(id: string): Promise<ProjectDetail> {
+    return request<ProjectDetail>(`/api/projects/${id}`);
+  }
+
+  async createProject(input: CreateProjectRequest): Promise<ProjectItem> {
+    return request<ProjectItem>("/api/projects", {
+      method: "POST",
+      body: JSON.stringify(input),
+    });
+  }
+
+  async deleteProject(id: string): Promise<void> {
+    return request<void>(`/api/projects/${id}`, { method: "DELETE" });
+  }
+
+  async mergeProjectPRs(projectId: string): Promise<{ prUrl: string; prNumber: number }> {
+    return request<{ prUrl: string; prNumber: number }>(`/api/projects/${projectId}/merge-prs`, {
+      method: "POST",
+    });
   }
 
   // ── Plugins API ──────────────────────────────────────────────────
