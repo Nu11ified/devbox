@@ -115,6 +115,42 @@ export async function getAuthenticatedUser(accessToken: string): Promise<GitHubU
   return user;
 }
 
+export interface GitHubBranch {
+  name: string;
+  protected: boolean;
+}
+
+export async function listRepoBranches(
+  accessToken: string,
+  owner: string,
+  repo: string,
+): Promise<GitHubBranch[]> {
+  const cacheKey = `gh:branches:${owner}/${repo}`;
+  const cached = await cacheGet<GitHubBranch[]>(cacheKey);
+  if (cached) return cached;
+
+  const kit = octokit(accessToken);
+  const branches: GitHubBranch[] = [];
+  let page = 1;
+
+  while (true) {
+    const { data } = await kit.repos.listBranches({
+      owner,
+      repo,
+      per_page: 100,
+      page,
+    });
+    branches.push(
+      ...data.map((b) => ({ name: b.name, protected: b.protected })),
+    );
+    if (data.length < 100) break;
+    page++;
+  }
+
+  await cacheSet(cacheKey, branches, "fast");
+  return branches;
+}
+
 export async function getIssue(
   accessToken: string,
   owner: string,

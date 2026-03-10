@@ -372,6 +372,10 @@ class PatchworkAPI {
     return request<any[]>("/api/github/repos");
   }
 
+  async listGitHubBranches(owner: string, repo: string): Promise<{ name: string; protected: boolean }[]> {
+    return request<{ name: string; protected: boolean }[]>(`/api/github/repos/${owner}/${repo}/branches`);
+  }
+
   async listGitHubIssues(owner: string, repo: string): Promise<any[]> {
     return request<any[]>(`/api/github/repos/${owner}/${repo}/issues`);
   }

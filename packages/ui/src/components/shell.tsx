@@ -113,7 +113,7 @@ function ShellInner({ children }: { children: React.ReactNode }) {
       <TopBar />
       <CommandPalette />
       <ShellCommands />
-      <main className="flex-1 overflow-hidden">
+      <main className="flex-1 overflow-y-auto">
         {children}
       </main>
     </div>
