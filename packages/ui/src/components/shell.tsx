@@ -8,6 +8,8 @@ import {
   CommandPaletteProvider,
   useCommandPalette,
 } from "@/hooks/use-command-palette";
+import { ToastProvider } from "@/components/ui/toast";
+import { useGlobalShortcuts } from "@/hooks/use-global-shortcuts";
 import { api } from "@/lib/api";
 import {
   LayoutGrid,
@@ -105,6 +107,8 @@ function ShellInner({ children }: { children: React.ReactNode }) {
     return null; // Brief loading state while checking onboarding
   }
 
+  useGlobalShortcuts();
+
   return (
     <div className="flex flex-col h-screen bg-background text-foreground">
       <TopBar />
@@ -120,7 +124,9 @@ function ShellInner({ children }: { children: React.ReactNode }) {
 export function Shell({ children }: { children: React.ReactNode }) {
   return (
     <CommandPaletteProvider>
-      <ShellInner>{children}</ShellInner>
+      <ToastProvider>
+        <ShellInner>{children}</ShellInner>
+      </ToastProvider>
     </CommandPaletteProvider>
   );
 }
