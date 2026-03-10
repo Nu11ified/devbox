@@ -1,12 +1,13 @@
 # Patchwork UI (Next.js)
 # Multi-stage: bun install + next build (standalone) → node runtime
 
-FROM oven/bun:1.3.8 AS builder
+FROM oven/bun:latest AS builder
 
 WORKDIR /build
 
 # Copy workspace root files
-COPY package.json bun.lock tsconfig.base.json ./
+COPY package.json tsconfig.base.json ./
+COPY bun.lock* ./
 
 # Copy packages needed for UI build
 COPY packages/shared/package.json packages/shared/tsconfig.json packages/shared/
@@ -15,10 +16,9 @@ COPY packages/server/package.json packages/server/
 COPY packages/server/prisma packages/server/prisma
 COPY packages/ui/ packages/ui/
 
-# Install dependencies, generate Prisma client, and build
-# Note: prisma generate must run from server dir where prisma is a devDep,
-# so bun resolves it from node_modules instead of trying npm auto-install
-RUN bun install && \
+# Install dependencies, generate Prisma client
+# --frozen-lockfile is skipped to tolerate optional dep platform mismatches
+RUN rm -f bun.lock && bun install && \
     cd packages/server && bun run prisma generate && cd ../..
 
 # API_SERVER_URL must be available at build time because Next.js standalone

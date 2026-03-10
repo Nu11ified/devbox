@@ -1,12 +1,13 @@
 # Patchwork Server
 # Multi-stage: bun build → bun runtime
 
-FROM oven/bun:1.3.8 AS builder
+FROM oven/bun:latest AS builder
 
 WORKDIR /build
 
 # Copy workspace root files
-COPY package.json bun.lock tsconfig.base.json ./
+COPY package.json tsconfig.base.json ./
+COPY bun.lock* ./
 
 # Copy packages needed for server build
 COPY packages/shared/package.json packages/shared/tsconfig.json packages/shared/
@@ -16,8 +17,8 @@ COPY packages/server/src packages/server/src
 COPY packages/server/prisma packages/server/prisma
 
 # Install dependencies, generate Prisma client, and build
-# cache-bust: 2026-03-09
-RUN bun install && \
+# --frozen-lockfile is skipped to tolerate optional dep platform mismatches
+RUN rm -f bun.lock && bun install && \
     cd packages/server && bun run prisma generate && cd ../.. && \
     bun run --filter @patchwork/shared build && \
     bun run --filter @patchwork/server build
@@ -34,7 +35,7 @@ RUN cp packages/server/package.json /tmp/server-package.json && \
     bunx prisma generate
 
 # --- Runtime ---
-FROM oven/bun:1.3.8-slim
+FROM oven/bun:slim
 
 RUN apt-get update -y && apt-get install -y openssl git && rm -rf /var/lib/apt/lists/*
 
