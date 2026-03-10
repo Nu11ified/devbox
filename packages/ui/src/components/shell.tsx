@@ -17,12 +17,21 @@ import {
   Settings,
   FolderOpen,
   Plus,
+  GitBranch,
 } from "lucide-react";
+import type { ProjectItem } from "@/lib/api";
 
 function ShellCommands() {
   const router = useRouter();
   const { registerCommands } = useCommandPalette();
+  const [projects, setProjects] = useState<ProjectItem[]>([]);
 
+  // Fetch projects for dynamic command palette entries
+  useEffect(() => {
+    api.listProjects().then(setProjects).catch(() => {});
+  }, []);
+
+  // Static commands
   useEffect(() => {
     const unregister = registerCommands([
       {
@@ -68,6 +77,20 @@ function ShellCommands() {
     ]);
     return unregister;
   }, [registerCommands, router]);
+
+  // Dynamic project navigation commands
+  useEffect(() => {
+    if (projects.length === 0) return;
+    const cmds = projects.map((p) => ({
+      id: `project-${p.id}`,
+      label: `${p.name}`,
+      group: "Navigation" as const,
+      icon: GitBranch,
+      shortcut: "",
+      onSelect: () => router.push(`/projects/${p.id}`),
+    }));
+    return registerCommands(cmds);
+  }, [projects, registerCommands, router]);
 
   return null;
 }

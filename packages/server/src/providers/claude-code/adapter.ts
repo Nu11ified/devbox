@@ -329,11 +329,13 @@ export class ClaudeCodeAdapter implements ProviderAdapterShape {
       cwd,
       permissionMode,
       maxTurns: 50,
+      maxBudgetUsd: 5.0,
+      effort: "high",
       abortController: state.abortController,
       env,
       includePartialMessages: true,
       // Don't load user/project settings — our adapter controls permissions
-      settingSources: [],
+      settingSources: ["project"],
     };
 
     // Only set bypass flags when NOT running as root (root can't use them)
@@ -345,7 +347,7 @@ export class ClaudeCodeAdapter implements ProviderAdapterShape {
     if (isFullAccess) {
       opts.allowedTools = [
         "Read", "Edit", "Write", "Bash", "Glob", "Grep",
-        "WebSearch", "WebFetch",
+        "WebSearch", "WebFetch", "TodoWrite", "Agent",
       ];
     }
 
@@ -456,10 +458,18 @@ export class ClaudeCodeAdapter implements ProviderAdapterShape {
 
         // Capture session_id and actual model from init for resume support
         if (message.type === "system" && (message as any).subtype === "init") {
-          state.session.resumeCursor = (message as any).session_id;
+          const sdkSessionId = (message as any).session_id;
+          state.session.resumeCursor = sdkSessionId;
           const actualModel = (message as any).model;
           if (actualModel) {
-            console.log(`[claude-adapter] SDK init: model=${actualModel} session=${(message as any).session_id}`);
+            console.log(`[claude-adapter] SDK init: model=${actualModel} session=${sdkSessionId}`);
+          }
+          // Persist session_id to DB for resume across server restarts
+          if (sdkSessionId) {
+            prisma.threadSession.updateMany({
+              where: { threadId: threadId as string, status: "active" },
+              data: { resumeCursor: sdkSessionId },
+            }).catch(() => {});
           }
         }
       }
@@ -605,6 +615,21 @@ export class ClaudeCodeAdapter implements ProviderAdapterShape {
             sessionId: message.session_id,
             totalCostUsd: message.total_cost_usd,
             usage: message.usage,
+            numTurns: message.num_turns,
+          }, turnId, message)
+        );
+      } else if (message.subtype === "error_max_budget_usd") {
+        envelopes.push(
+          this.makeEnvelope("runtime.error", threadId, {
+            message: "Budget limit reached ($5.00). Send another message to continue.",
+            recoverable: true,
+          }, turnId, message)
+        );
+      } else if (message.subtype === "error_max_turns") {
+        envelopes.push(
+          this.makeEnvelope("runtime.error", threadId, {
+            message: "Turn limit reached (50 turns). Send another message to continue.",
+            recoverable: true,
           }, turnId, message)
         );
       }

@@ -153,6 +153,22 @@ export class ProviderService {
 
       console.log(`[provider] Restarting session for thread ${threadId}`);
 
+      // Try to find a resume cursor from the last active session
+      const lastSession = yield* Effect.tryPromise({
+        try: () =>
+          prisma.threadSession.findFirst({
+            where: { threadId: threadId as string },
+            orderBy: { startedAt: "desc" },
+            select: { resumeCursor: true },
+          }),
+        catch: () => new ValidationError({ message: "Failed to find last session" }),
+      }).pipe(Effect.catchAll(() => Effect.succeed(null)));
+
+      const resumeCursor = (lastSession as any)?.resumeCursor ?? undefined;
+      if (resumeCursor) {
+        console.log(`[provider] Resuming session ${resumeCursor} for thread ${threadId}`);
+      }
+
       yield* adapter.startSession({
         threadId,
         provider: thread.provider as ProviderKind,
@@ -164,6 +180,7 @@ export class ProviderService {
         githubToken: opts?.githubToken,
         repo: thread.repo ?? undefined,
         branch: thread.branch ?? undefined,
+        resumeCursor,
       });
 
       // Update DB status
@@ -367,6 +384,31 @@ export class ProviderService {
             }),
           catch: () => new ValidationError({ message: "Failed to update turn status" }),
         }).pipe(Effect.catchAll(() => Effect.void));
+      }
+
+      // Persist cost and usage data from session.configured (SDK result)
+      if (envelope.type === "session.configured" && envelope.turnId) {
+        const p = envelope.payload as { totalCostUsd?: number; usage?: any; numTurns?: number };
+        if (p.totalCostUsd != null || p.usage) {
+          yield* Effect.tryPromise({
+            try: () =>
+              prisma.threadTurn.updateMany({
+                where: {
+                  threadId: envelope.threadId as string,
+                  turnId: envelope.turnId as string,
+                  role: "assistant",
+                },
+                data: {
+                  tokenUsage: {
+                    ...(p.usage ?? {}),
+                    totalCostUsd: p.totalCostUsd,
+                    numTurns: p.numTurns,
+                  },
+                },
+              }),
+            catch: () => new ValidationError({ message: "Failed to persist cost data" }),
+          }).pipe(Effect.catchAll(() => Effect.void));
+        }
       }
 
       // Accumulate assistant text content
