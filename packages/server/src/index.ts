@@ -24,7 +24,7 @@ import { threadsRouter } from "./api/threads.js";
 import { pluginsRouter } from "./api/plugins.js";
 import { projectsRouter } from "./api/projects.js";
 import { archiveRouter } from "./api/archive.js";
-import { seedPlugins } from "./db/seed-plugins.js";
+import { PluginSyncJob } from "./plugins/sync.js";
 import prisma from "./db/prisma.js";
 import { startArchiveJob } from "./orchestrator/archive-job.js";
 
@@ -88,8 +88,6 @@ if (isMain) {
   (async () => {
     await runMigration();
     await seedDefaultTemplate();
-    await seedPlugins();
-
     // Create full-text search GIN indexes (idempotent)
     try {
       await prisma.$executeRawUnsafe(`
@@ -124,10 +122,14 @@ if (isMain) {
 
     const archiveJob = startArchiveJob();
 
+    const pluginSyncJob = new PluginSyncJob();
+    await pluginSyncJob.start();
+
     process.on("SIGTERM", () => {
       orchestrator.stop();
       syncJob.stop();
       archiveJob.stop();
+      pluginSyncJob.stop();
       server.close();
     });
   })();

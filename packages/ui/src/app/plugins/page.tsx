@@ -4,33 +4,31 @@ import { useEffect, useState, useCallback } from "react";
 import { api, type PluginItem } from "@/lib/api";
 import {
   Loader2,
-  Check,
-  Download,
-  X,
   Search,
   Filter,
+  X,
+  BadgeCheck,
+  ExternalLink,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const CATEGORY_LABELS: Record<string, string> = {
-  quality: "Code Quality",
-  workflow: "Workflow",
+  development: "Development",
+  productivity: "Productivity",
   security: "Security",
-  frontend: "Frontend",
-  backend: "Backend",
-  docs: "Documentation",
-  devops: "DevOps",
+  database: "Database",
+  "language-server": "Language Server",
+  integration: "Integration",
   general: "General",
 };
 
 const CATEGORY_COLORS: Record<string, string> = {
-  quality: "bg-blue-500/10 text-blue-400 border-blue-500/20",
-  workflow: "bg-violet-500/10 text-violet-400 border-violet-500/20",
+  development: "bg-blue-500/10 text-blue-400 border-blue-500/20",
+  productivity: "bg-violet-500/10 text-violet-400 border-violet-500/20",
   security: "bg-red-500/10 text-red-400 border-red-500/20",
-  frontend: "bg-pink-500/10 text-pink-400 border-pink-500/20",
-  backend: "bg-emerald-500/10 text-emerald-400 border-emerald-500/20",
-  docs: "bg-amber-500/10 text-amber-400 border-amber-500/20",
-  devops: "bg-cyan-500/10 text-cyan-400 border-cyan-500/20",
+  database: "bg-emerald-500/10 text-emerald-400 border-emerald-500/20",
+  "language-server": "bg-amber-500/10 text-amber-400 border-amber-500/20",
+  integration: "bg-cyan-500/10 text-cyan-400 border-cyan-500/20",
   general: "bg-zinc-500/10 text-zinc-400 border-zinc-500/20",
 };
 
@@ -39,7 +37,6 @@ export default function PluginsPage() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [activeCategory, setActiveCategory] = useState<string | null>(null);
-  const [toggling, setToggling] = useState<Set<string>>(new Set());
 
   const fetchPlugins = useCallback(async () => {
     try {
@@ -56,40 +53,7 @@ export default function PluginsPage() {
     fetchPlugins();
   }, [fetchPlugins]);
 
-  async function handleToggle(plugin: PluginItem) {
-    setToggling((prev) => new Set(prev).add(plugin.id));
-    try {
-      if (plugin.installed) {
-        await api.uninstallPlugin(plugin.id);
-      } else {
-        await api.installPlugin(plugin.id);
-      }
-      setPlugins((prev) =>
-        prev.map((p) =>
-          p.id === plugin.id
-            ? {
-                ...p,
-                installed: !p.installed,
-                installCount: p.installed
-                  ? p.installCount - 1
-                  : p.installCount + 1,
-              }
-            : p
-        )
-      );
-    } catch (err) {
-      console.error("Failed to toggle plugin:", err);
-    } finally {
-      setToggling((prev) => {
-        const next = new Set(prev);
-        next.delete(plugin.id);
-        return next;
-      });
-    }
-  }
-
   const categories = Array.from(new Set(plugins.map((p) => p.category)));
-  const installedCount = plugins.filter((p) => p.installed).length;
 
   const filtered = plugins.filter((p) => {
     if (activeCategory && p.category !== activeCategory) return false;
@@ -119,16 +83,12 @@ export default function PluginsPage() {
         <div className="mb-8">
           <h1 className="text-2xl font-semibold tracking-tight">Plugins</h1>
           <p className="text-sm text-muted-foreground/60 mt-1">
-            Enhance your agent with specialized skills, workflows, and tools.
-            Installed plugins are automatically loaded into new threads.
+            Browse plugins from the Anthropic Claude Code marketplace.
+            Plugins are automatically available to your agents via the SDK.
           </p>
           <div className="flex items-center gap-3 mt-3">
             <span className="text-xs font-mono text-muted-foreground/50">
-              {plugins.length} available
-            </span>
-            <span className="text-xs text-muted-foreground/30">|</span>
-            <span className="text-xs font-mono text-primary/70">
-              {installedCount} installed
+              {plugins.length} plugins from Anthropic marketplace
             </span>
           </div>
         </div>
@@ -189,12 +149,7 @@ export default function PluginsPage() {
         {/* Plugin grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {filtered.map((plugin) => (
-            <PluginCard
-              key={plugin.id}
-              plugin={plugin}
-              toggling={toggling.has(plugin.id)}
-              onToggle={() => handleToggle(plugin)}
-            />
+            <PluginCard key={plugin.id} plugin={plugin} />
           ))}
         </div>
 
@@ -210,36 +165,26 @@ export default function PluginsPage() {
   );
 }
 
-function PluginCard({
-  plugin,
-  toggling,
-  onToggle,
-}: {
-  plugin: PluginItem;
-  toggling: boolean;
-  onToggle: () => void;
-}) {
+function PluginCard({ plugin }: { plugin: PluginItem }) {
   const catColor =
     CATEGORY_COLORS[plugin.category] || CATEGORY_COLORS.general;
 
   return (
-    <div
-      className={cn(
-        "group relative flex flex-col rounded-xl border transition-all duration-200",
-        plugin.installed
-          ? "border-primary/20 bg-primary/[0.02]"
-          : "border-border/30 bg-card/50 hover:border-border/60 hover:bg-card/80"
-      )}
-    >
+    <div className="group relative flex flex-col rounded-xl border border-border/30 bg-card/50 hover:border-border/60 hover:bg-card/80 transition-all duration-200">
       <div className="p-4 flex-1">
         {/* Top row: icon + category badge */}
         <div className="flex items-start justify-between mb-3">
           <div className="flex items-center gap-2.5">
             <span className="text-xl leading-none">{plugin.icon || "🔧"}</span>
             <div>
-              <h3 className="text-sm font-medium leading-tight">
-                {plugin.name}
-              </h3>
+              <div className="flex items-center gap-1.5">
+                <h3 className="text-sm font-medium leading-tight">
+                  {plugin.name}
+                </h3>
+                {plugin.verified && (
+                  <BadgeCheck className="h-3.5 w-3.5 text-emerald-400 shrink-0" />
+                )}
+              </div>
               <span className="text-[10px] font-mono text-muted-foreground/40">
                 v{plugin.version}
               </span>
@@ -275,39 +220,21 @@ function PluginCard({
 
       {/* Footer */}
       <div className="px-4 py-3 border-t border-border/20 flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <span className="text-[10px] font-mono text-muted-foreground/30">
-            by {plugin.author}
-          </span>
-        </div>
+        <span className="text-[10px] font-mono text-muted-foreground/30">
+          by {plugin.author}
+        </span>
 
-        <button
-          onClick={onToggle}
-          disabled={toggling}
-          className={cn(
-            "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all duration-200",
-            toggling && "opacity-50 cursor-not-allowed",
-            plugin.installed
-              ? "text-primary/70 bg-primary/10 hover:bg-red-500/10 hover:text-red-400 group-hover:[&]:bg-red-500/10 group-hover:[&]:text-red-400"
-              : "text-foreground/70 bg-foreground/5 hover:bg-primary/10 hover:text-primary"
-          )}
-        >
-          {toggling ? (
-            <Loader2 className="h-3 w-3 animate-spin" />
-          ) : plugin.installed ? (
-            <>
-              <Check className="h-3 w-3 group-hover:hidden" />
-              <X className="h-3 w-3 hidden group-hover:block" />
-              <span className="group-hover:hidden">Installed</span>
-              <span className="hidden group-hover:inline">Uninstall</span>
-            </>
-          ) : (
-            <>
-              <Download className="h-3 w-3" />
-              Install
-            </>
-          )}
-        </button>
+        {plugin.homepage && (
+          <a
+            href={plugin.homepage}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-1 text-[10px] text-muted-foreground/40 hover:text-muted-foreground/70 transition-colors"
+          >
+            <ExternalLink className="h-3 w-3" />
+            Source
+          </a>
+        )}
       </div>
     </div>
   );

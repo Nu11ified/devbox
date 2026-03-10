@@ -390,7 +390,10 @@ model Plugin {
   hooks        Json     @default("[]")
   tools        Json     @default("[]")
   version      String   @default("1.0.0")
-  builtIn      Boolean  @default(true) @map("built_in")
+  builtIn      Boolean  @default(false) @map("built_in")
+  homepage     String?
+  verified     Boolean  @default(false)
+  sourceType   String   @default("marketplace") @map("source_type")
   createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt    DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
