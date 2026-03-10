@@ -9,6 +9,7 @@ import type { ProviderKind } from "../providers/types.js";
 import { DevboxManager } from "../devbox/manager.js";
 import type { AuthProxy } from "../auth/proxy.js";
 import { Octokit } from "@octokit/rest";
+import { createWorktree, removeWorktree } from "../git/worktree.js";
 
 const THREADS_DIR = process.env.THREADS_DIR || "/data/patchwork/threads";
 const devboxManager = new DevboxManager();
@@ -59,7 +60,7 @@ export function threadsRouter(providerService: ProviderService, authProxy?: Auth
   router.post("/", async (req, res) => {
     try {
       const userId = (req as any).user?.id;
-      const { title, provider, model, runtimeMode, workspacePath, useSubscription, issueId, repo, branch } = req.body;
+      const { title, provider, model, runtimeMode, workspacePath, useSubscription, issueId, repo, branch, projectId, worktreeBranch } = req.body;
 
       if (!title || !provider) {
         return res.status(400).json({ error: "title and provider are required" });
@@ -92,8 +93,45 @@ export function threadsRouter(providerService: ProviderService, authProxy?: Auth
         githubToken = account?.accessToken ?? undefined;
       }
 
-      // Default workspace: use /workspace inside Docker containers, or a temp dir on bare metal
-      let resolvedWorkspacePath = workspacePath || "/workspace";
+      // If projectId is provided, resolve workspace from the project
+      let resolvedProjectId: string | undefined = projectId;
+      let resolvedWorktreePath: string | undefined;
+      let resolvedWorktreeBranch: string | undefined = worktreeBranch;
+      let projectWorkspacePath: string | undefined;
+
+      if (projectId) {
+        const project = await prisma.project.findUnique({ where: { id: projectId } });
+        if (!project) {
+          return res.status(400).json({ error: "Project not found" });
+        }
+        projectWorkspacePath = project.workspacePath;
+
+        if (worktreeBranch) {
+          // Create a worktree under the project for this thread
+          const shortId = crypto.randomUUID().slice(0, 8);
+          const projectDir = project.workspacePath.substring(
+            0,
+            project.workspacePath.lastIndexOf("/")
+          );
+          const worktreeDir = `${projectDir}/worktrees/${shortId}`;
+          try {
+            createWorktree({
+              repoDir: project.workspacePath,
+              worktreeDir,
+              branch: worktreeBranch,
+              baseBranch: project.branch,
+            });
+            resolvedWorktreePath = worktreeDir;
+          } catch (err: any) {
+            return res.status(500).json({
+              error: `Failed to create worktree: ${err.message}`,
+            });
+          }
+        }
+      }
+
+      // Default workspace: worktree path > explicit workspacePath > project workspace > /workspace fallback
+      let resolvedWorkspacePath = resolvedWorktreePath || workspacePath || projectWorkspacePath || "/workspace";
       if (!resolvedWorkspacePath || resolvedWorkspacePath === "/workspace") {
         // Ensure the path actually exists / is writable
         try {
@@ -187,6 +225,9 @@ export function threadsRouter(providerService: ProviderService, authProxy?: Auth
           repo,
           branch,
           devboxId,
+          projectId: resolvedProjectId,
+          worktreePath: resolvedWorktreePath,
+          worktreeBranch: resolvedWorktreeBranch,
         })
       );
 
@@ -353,6 +394,13 @@ export function threadsRouter(providerService: ProviderService, authProxy?: Auth
           // Destroy devbox container if present
           if (thread.devboxId) {
             await devboxManager.destroy(thread.devboxId).catch(() => {});
+          }
+          // Remove git worktree if thread belongs to a project
+          if (thread.worktreePath && thread.projectId) {
+            const project = await prisma.project.findUnique({ where: { id: thread.projectId } });
+            if (project) {
+              removeWorktree(project.workspacePath, thread.worktreePath);
+            }
           }
           // Remove workspace directory
           const threadDir = `${THREADS_DIR}/${thread.id}`;

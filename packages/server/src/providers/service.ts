@@ -49,6 +49,9 @@ export class ProviderService {
     repo?: string;
     branch?: string;
     devboxId?: string;
+    projectId?: string;
+    worktreePath?: string;
+    worktreeBranch?: string;
   }): Effect.Effect<{ thread: any; session: ProviderSession }, AdapterError> {
     const self = this;
     return Effect.gen(function* () {
@@ -69,6 +72,9 @@ export class ProviderService {
               repo: input.repo,
               branch: input.branch,
               devboxId: input.devboxId,
+              projectId: input.projectId,
+              worktreePath: input.worktreePath,
+              worktreeBranch: input.worktreeBranch,
             },
           }),
         catch: (e) =>

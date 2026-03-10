@@ -22,6 +22,7 @@ import { seedDefaultTemplate } from "./db/seed.js";
 import { ProviderAdapterRegistry, ProviderService, ClaudeCodeAdapter, CodexAdapter } from "./providers/index.js";
 import { threadsRouter } from "./api/threads.js";
 import { pluginsRouter } from "./api/plugins.js";
+import { projectsRouter } from "./api/projects.js";
 import { seedPlugins } from "./db/seed-plugins.js";
 
 export function createApp(): { app: express.Express; providerService: ProviderService } {
@@ -68,6 +69,7 @@ export function createApp(): { app: express.Express; providerService: ProviderSe
   app.use("/api/settings", settingsRouter);
   app.use("/api/threads", threadsRouter(providerService, authProxy));
   app.use("/api/plugins", pluginsRouter());
+  app.use("/api/projects", projectsRouter());
 
   return { app, providerService };
 }
