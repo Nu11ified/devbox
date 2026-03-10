@@ -23,6 +23,7 @@ import { ProviderAdapterRegistry, ProviderService, ClaudeCodeAdapter, CodexAdapt
 import { threadsRouter } from "./api/threads.js";
 import { pluginsRouter } from "./api/plugins.js";
 import { projectsRouter } from "./api/projects.js";
+import { archiveRouter } from "./api/archive.js";
 import { seedPlugins } from "./db/seed-plugins.js";
 import prisma from "./db/prisma.js";
 import { startArchiveJob } from "./orchestrator/archive-job.js";
@@ -72,6 +73,7 @@ export function createApp(): { app: express.Express; providerService: ProviderSe
   app.use("/api/threads", threadsRouter(providerService, authProxy));
   app.use("/api/plugins", pluginsRouter());
   app.use("/api/projects", projectsRouter());
+  app.use("/api/archive", archiveRouter);
 
   return { app, providerService };
 }

@@ -5,6 +5,7 @@ import { createWorktree } from "../git/worktree.js";
 import { commitAllChanges, pushBranch } from "../git/pr.js";
 import type { ProviderService } from "../providers/service.js";
 import { ThreadId } from "../providers/types.js";
+import { findRelevantContext } from "./context-search.js";
 
 /**
  * Sanitize a string for use as a git branch name.
@@ -176,8 +177,12 @@ export async function dispatchIssue(
   // Update issue status to in_progress
   await updateIssue(issue.id, { status: "in_progress" });
 
-  // Send autonomous prompt
-  const prompt = buildAutonomousPrompt(issue);
+  // Build autonomous prompt with past context injection
+  let prompt = buildAutonomousPrompt(issue);
+  const pastContext = await findRelevantContext(issue.title, issue.body, issue.projectId);
+  if (pastContext) {
+    prompt += "\n\n" + pastContext;
+  }
   try {
     await Effect.runPromise(
       providerService.sendTurn({
