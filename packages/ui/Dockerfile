@@ -1,7 +1,7 @@
 # Patchwork UI (Next.js)
 # Multi-stage: bun install + next build (standalone) → node runtime
 
-FROM oven/bun:1 AS builder
+FROM oven/bun:1.3.8 AS builder
 
 WORKDIR /build
 

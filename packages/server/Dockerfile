@@ -1,7 +1,7 @@
 # Patchwork Server
 # Multi-stage: bun build → bun runtime
 
-FROM oven/bun:1 AS builder
+FROM oven/bun:1.3.8 AS builder
 
 WORKDIR /build
 
@@ -34,7 +34,7 @@ RUN cp packages/server/package.json /tmp/server-package.json && \
     bunx prisma generate
 
 # --- Runtime ---
-FROM oven/bun:1-slim
+FROM oven/bun:1.3.8-slim
 
 RUN apt-get update -y && apt-get install -y openssl git && rm -rf /var/lib/apt/lists/*
 
