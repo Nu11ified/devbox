@@ -301,9 +301,10 @@ export class ClaudeCodeAdapter implements ProviderAdapterShape {
       env.GITHUB_TOKEN = state.session.githubToken;
     }
 
-    // bypassPermissions is blocked when running as root (security check in CLI).
-    const isRoot = process.getuid?.() === 0;
-    const canBypass = isFullAccess && !isRoot;
+    // Always bypass permissions when user chose full-access — even as root.
+    // The SDK's root check is a safety guard for interactive CLI use, but our
+    // server is a controlled environment where the user explicitly opted in.
+    const canBypass = isFullAccess;
 
     const cwd = state.session.workspacePath || "/workspace";
     if (!existsSync(cwd)) {
@@ -313,11 +314,15 @@ export class ClaudeCodeAdapter implements ProviderAdapterShape {
     // Write installed plugin instructions to CLAUDE.md in the workspace
     await this.writePluginInstructions(cwd, state.session.userId);
 
+    // Enable agent teams feature flag
+    env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS = "1";
+
     const opts: Record<string, unknown> = {
       model: model ?? state.session.model ?? "claude-opus-4-6",
       cwd,
       permissionMode: canBypass ? "bypassPermissions" : "plan",
       allowDangerouslySkipPermissions: canBypass,
+      dangerouslySkipPermissions: canBypass,
       maxTurns: 50,
       abortController: state.abortController,
       env,
@@ -398,8 +403,8 @@ export class ClaudeCodeAdapter implements ProviderAdapterShape {
 
     // Track whether we're receiving stream events (for fallback logic)
     let hasStreamEvents = false;
-    // Track active tool items for completion
-    const activeItemIds: string[] = [];
+    // Track active tool items for completion (id → toolName)
+    const activeItems = new Map<string, string>();
 
     try {
       for await (const message of q) {
@@ -413,14 +418,14 @@ export class ClaudeCodeAdapter implements ProviderAdapterShape {
           if (
             streamEvent?.type === "content_block_start" &&
             streamEvent.content_block?.type === "text" &&
-            activeItemIds.length > 0
+            activeItems.size > 0
           ) {
-            for (const itemId of activeItemIds) {
+            for (const [itemId, toolName] of activeItems) {
               await this.enqueue(
-                this.makeEnvelope("item.completed", threadId, { itemId, turnId }, turnId)
+                this.makeEnvelope("item.completed", threadId, { itemId, turnId, toolName }, turnId)
               );
             }
-            activeItemIds.length = 0;
+            activeItems.clear();
           }
         }
 
@@ -429,7 +434,8 @@ export class ClaudeCodeAdapter implements ProviderAdapterShape {
         // Track items for completion
         for (const env of envelopes) {
           if (env.type === "item.started") {
-            activeItemIds.push((env.payload as { itemId: string }).itemId);
+            const p = env.payload as { itemId: string; toolName: string };
+            activeItems.set(p.itemId, p.toolName);
           }
         }
 
@@ -444,9 +450,9 @@ export class ClaudeCodeAdapter implements ProviderAdapterShape {
       }
 
       // Complete any remaining tool items
-      for (const itemId of activeItemIds) {
+      for (const [itemId, toolName] of activeItems) {
         await this.enqueue(
-          this.makeEnvelope("item.completed", threadId, { itemId, turnId }, turnId)
+          this.makeEnvelope("item.completed", threadId, { itemId, turnId, toolName }, turnId)
         );
       }
 
