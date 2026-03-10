@@ -107,7 +107,7 @@ export interface DevboxTemplate {
 
 // Issue types
 
-export type IssueStatus = "open" | "queued" | "in_progress" | "review" | "done" | "cancelled";
+export type IssueStatus = "open" | "queued" | "in_progress" | "review" | "done" | "cancelled" | "archived";
 
 export interface Issue {
   id: string;

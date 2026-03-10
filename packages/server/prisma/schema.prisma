@@ -169,6 +169,7 @@ model Issue {
   githubIssueUrl   String?   @map("github_issue_url")
   githubSyncedAt   DateTime? @map("github_synced_at") @db.Timestamptz
   prUrl            String?   @map("pr_url")
+  archivedAt       DateTime? @map("archived_at") @db.Timestamptz
   createdByUserId  String?   @map("created_by_user_id")
   projectId        String?   @map("project_id") @db.Uuid
 

@@ -171,7 +171,12 @@ export async function findAllIssues(filters?: {
   priority?: number;
 }) {
   const where: Record<string, unknown> = {};
-  if (filters?.status) where.status = filters.status;
+  if (filters?.status) {
+    where.status = filters.status;
+  } else {
+    // Exclude archived issues by default when no status filter is provided
+    where.status = { notIn: ["archived"] };
+  }
   if (filters?.repo) where.repo = filters.repo;
   if (filters?.priority !== undefined) where.priority = filters.priority;
 
@@ -203,7 +208,7 @@ export async function findIssueByIdentifier(identifier: string) {
 
 export async function updateIssue(
   id: string,
-  fields: Partial<CreateIssueInput & { status: string; runId: string; retryCount: number; lastError: string | null; prUrl: string | null }>
+  fields: Partial<CreateIssueInput & { status: string; runId: string; retryCount: number; lastError: string | null; prUrl: string | null; archivedAt: Date | null }>
 ) {
   const data: Record<string, unknown> = {};
 
@@ -224,6 +229,7 @@ export async function updateIssue(
     githubIssueId: "githubIssueId",
     githubIssueUrl: "githubIssueUrl",
     prUrl: "prUrl",
+    archivedAt: "archivedAt",
     createdByUserId: "createdByUserId",
     projectId: "projectId",
   };
@@ -232,6 +238,13 @@ export async function updateIssue(
     if (key in fields) {
       data[prismaKey] = (fields as Record<string, unknown>)[key];
     }
+  }
+
+  // Auto-manage archivedAt based on status transitions
+  if (data.status === "archived" && !("archivedAt" in fields)) {
+    data.archivedAt = new Date();
+  } else if (data.status && data.status !== "archived" && !("archivedAt" in fields)) {
+    data.archivedAt = null;
   }
 
   if (Object.keys(data).length === 0) {
