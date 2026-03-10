@@ -10,6 +10,7 @@ import { DevboxManager } from "../devbox/manager.js";
 import type { AuthProxy } from "../auth/proxy.js";
 import { Octokit } from "@octokit/rest";
 import { createWorktree, removeWorktree } from "../git/worktree.js";
+import { commitAllChanges, pushBranch } from "../git/pr.js";
 
 const THREADS_DIR = process.env.THREADS_DIR || "/data/patchwork/threads";
 const devboxManager = new DevboxManager();
@@ -308,10 +309,14 @@ export function threadsRouter(providerService: ProviderService, authProxy?: Auth
       const userId = (req as any).user?.id;
       const thread = await prisma.thread.findUnique({
         where: { id: req.params.id },
+        include: { project: true },
       });
 
       if (!thread) return res.status(404).json({ error: "Thread not found" });
-      if (!thread.repo) return res.status(400).json({ error: "Thread has no associated repo" });
+
+      // Resolve repo from project or thread (backward compat)
+      const repo = thread.project?.repo || thread.repo;
+      if (!repo) return res.status(400).json({ error: "Thread has no associated repo" });
 
       // Get GitHub token
       let githubToken: string | undefined;
@@ -325,31 +330,42 @@ export function threadsRouter(providerService: ProviderService, authProxy?: Auth
         return res.status(400).json({ error: "No GitHub access token available" });
       }
 
-      const [owner, repoName] = thread.repo.split("/");
-      const branchName = `patchwork/thread-${thread.id.slice(0, 8)}`;
-      const baseBranch = thread.branch || "main";
-
-      // Run git commands in devbox or on host
-      if (thread.devboxId) {
-        await devboxManager.runInContainer(thread.devboxId, [
-          "git", "-C", "/workspace", "checkout", "-b", branchName,
-        ]);
-        await devboxManager.runInContainer(thread.devboxId, [
-          "git", "-C", "/workspace", "add", "-A",
-        ]);
-        await devboxManager.runInContainer(thread.devboxId, [
-          "git", "-C", "/workspace", "commit", "-m", `Changes from Patchwork thread: ${thread.title}`,
-        ]);
-        await devboxManager.runInContainer(thread.devboxId, [
-          "git", "-C", "/workspace", "push", "origin", branchName,
-        ]);
-      } else {
-        const cwd = thread.workspacePath || "/workspace";
-        execFileSync("git", ["checkout", "-b", branchName], { cwd, stdio: "pipe" });
-        execFileSync("git", ["add", "-A"], { cwd, stdio: "pipe" });
-        execFileSync("git", ["commit", "-m", `Changes from Patchwork thread: ${thread.title}`], { cwd, stdio: "pipe" });
-        execFileSync("git", ["push", "origin", branchName], { cwd, stdio: "pipe" });
+      // Get user identity for commit authorship
+      let authorName = "Patchwork";
+      let authorEmail = "patchwork@users.noreply.github.com";
+      if (userId) {
+        const user = await prisma.user.findUnique({ where: { id: userId } });
+        if (user?.name) authorName = user.name;
+        if (user?.email) authorEmail = user.email;
       }
+
+      const [owner, repoName] = repo.split("/");
+      const baseBranch = thread.project?.branch || thread.branch || "main";
+
+      // Determine workspace and branch
+      const cwd = thread.worktreePath || thread.workspacePath || thread.project?.workspacePath || "/workspace";
+      const branchName = thread.worktreeBranch || `patchwork/thread-${thread.id.slice(0, 8)}`;
+
+      // If thread has no worktreeBranch (legacy thread), create a new branch
+      if (!thread.worktreeBranch) {
+        try {
+          execFileSync("git", ["checkout", "-b", branchName], { cwd, stdio: "pipe" });
+        } catch {
+          // Branch may already exist — try switching to it
+          execFileSync("git", ["checkout", branchName], { cwd, stdio: "pipe" });
+        }
+      }
+
+      // Commit with user identity
+      commitAllChanges({
+        cwd,
+        message: `Changes from Patchwork thread: ${thread.title}`,
+        authorName,
+        authorEmail,
+      });
+
+      // Push branch
+      pushBranch({ cwd, branch: branchName, githubToken, repo });
 
       // Create PR via GitHub API
       const octokit = new Octokit({ auth: githubToken });
@@ -362,13 +378,13 @@ export function threadsRouter(providerService: ProviderService, authProxy?: Auth
         body: `Created by Patchwork from thread: ${thread.title}\n\nThread ID: ${thread.id}`,
       });
 
-      // Store PR URL on thread
+      // Touch updatedAt
       await prisma.thread.update({
         where: { id: thread.id },
-        data: { workspacePath: thread.workspacePath }, // touch updatedAt
+        data: { updatedAt: new Date() },
       });
 
-      res.json({ prUrl: pr.html_url, prNumber: pr.number });
+      res.json({ prUrl: pr.html_url, prNumber: pr.number, branch: branchName });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
