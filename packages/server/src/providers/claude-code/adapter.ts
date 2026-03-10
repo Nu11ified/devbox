@@ -443,9 +443,13 @@ export class ClaudeCodeAdapter implements ProviderAdapterShape {
           await this.enqueue(env);
         }
 
-        // Capture session_id from init for resume support
+        // Capture session_id and actual model from init for resume support
         if (message.type === "system" && (message as any).subtype === "init") {
           state.session.resumeCursor = (message as any).session_id;
+          const actualModel = (message as any).model;
+          if (actualModel) {
+            console.log(`[claude-adapter] SDK init: model=${actualModel} session=${(message as any).session_id}`);
+          }
         }
       }
 

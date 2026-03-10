@@ -37,7 +37,11 @@ export function Composer({
   model: defaultModel,
 }: ComposerProps) {
   const [text, setText] = useState("");
-  const [selectedModel, setSelectedModel] = useState(defaultModel ?? "");
+  const availableModels = provider ? MODELS[provider] ?? [] : [];
+  // Initialize to the provided model, or the first available model for this provider
+  const [selectedModel, setSelectedModel] = useState(
+    defaultModel || availableModels[0]?.id || ""
+  );
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const handleSend = useCallback(() => {
@@ -61,7 +65,6 @@ export function Composer({
     [handleSend]
   );
 
-  const availableModels = provider ? MODELS[provider] ?? [] : [];
 
   return (
     <div className="border-t border-border/30 bg-background/80 backdrop-blur-sm p-3 pb-4">
