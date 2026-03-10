@@ -11,7 +11,9 @@ export default function NewProjectPage() {
   const [repo, setRepo] = useState("");
   const [branch, setBranch] = useState("main");
   const [repos, setRepos] = useState<any[]>([]);
+  const [branches, setBranches] = useState<{ name: string; protected: boolean }[]>([]);
   const [loadingRepos, setLoadingRepos] = useState(true);
+  const [loadingBranches, setLoadingBranches] = useState(false);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState("");
 
@@ -22,6 +24,50 @@ export default function NewProjectPage() {
       .catch(() => {})
       .finally(() => setLoadingRepos(false));
   }, []);
+
+  // Fetch branches when a repo is selected
+  useEffect(() => {
+    if (!repo) {
+      setBranches([]);
+      return;
+    }
+
+    const parts = repo.split("/");
+    if (parts.length !== 2) return;
+
+    const [owner, repoName] = parts;
+    if (!owner || !repoName) return;
+
+    setLoadingBranches(true);
+    setBranches([]);
+
+    // Try to auto-set default branch from the repo metadata
+    const selectedRepo = repos.find((r: any) => r.full_name === repo);
+    if (selectedRepo?.default_branch) {
+      setBranch(selectedRepo.default_branch);
+    }
+
+    api
+      .listGitHubBranches(owner, repoName)
+      .then((b) => {
+        setBranches(b);
+        // If current branch is not in the fetched list, reset to default
+        if (b.length > 0) {
+          const branchNames = b.map((br) => br.name);
+          if (selectedRepo?.default_branch && branchNames.includes(selectedRepo.default_branch)) {
+            setBranch(selectedRepo.default_branch);
+          } else if (!branchNames.includes(branch)) {
+            setBranch(b[0].name);
+          }
+        }
+      })
+      .catch(() => {
+        // If branch fetch fails, keep the text input as fallback
+        setBranches([]);
+      })
+      .finally(() => setLoadingBranches(false));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [repo]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -141,17 +187,43 @@ export default function NewProjectPage() {
               >
                 Branch
               </label>
-              <div className="relative">
-                <GitBranch className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-zinc-600" />
-                <input
-                  id="branch"
-                  type="text"
-                  value={branch}
-                  onChange={(e) => setBranch(e.target.value)}
-                  placeholder="main"
-                  className="w-full bg-zinc-900 border border-zinc-700/50 focus:border-zinc-600 text-zinc-100 rounded-lg pl-9 pr-3 py-2 text-sm outline-none transition-colors placeholder:text-zinc-600"
-                />
-              </div>
+              {loadingBranches ? (
+                <div className="relative">
+                  <GitBranch className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-zinc-600" />
+                  <div className="w-full bg-zinc-900 border border-zinc-700/50 text-zinc-500 rounded-lg pl-9 pr-3 py-2 text-sm flex items-center gap-2">
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                    Loading branches...
+                  </div>
+                </div>
+              ) : branches.length > 0 ? (
+                <div className="relative">
+                  <GitBranch className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-zinc-600 pointer-events-none z-10" />
+                  <select
+                    id="branch"
+                    value={branch}
+                    onChange={(e) => setBranch(e.target.value)}
+                    className="w-full bg-zinc-900 border border-zinc-700/50 focus:border-zinc-600 text-zinc-100 rounded-lg pl-9 pr-3 py-2 text-sm outline-none transition-colors appearance-none cursor-pointer"
+                  >
+                    {branches.map((b) => (
+                      <option key={b.name} value={b.name}>
+                        {b.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              ) : (
+                <div className="relative">
+                  <GitBranch className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-zinc-600" />
+                  <input
+                    id="branch"
+                    type="text"
+                    value={branch}
+                    onChange={(e) => setBranch(e.target.value)}
+                    placeholder="main"
+                    className="w-full bg-zinc-900 border border-zinc-700/50 focus:border-zinc-600 text-zinc-100 rounded-lg pl-9 pr-3 py-2 text-sm outline-none transition-colors placeholder:text-zinc-600"
+                  />
+                </div>
+              )}
               <p className="text-[10px] text-zinc-600">
                 Default branch for the project.
               </p>

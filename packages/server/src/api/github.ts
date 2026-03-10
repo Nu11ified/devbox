@@ -1,7 +1,7 @@
 import { Router, type Router as RouterType } from "express";
 import prisma from "../db/prisma.js";
 import { insertIssue } from "../db/queries.js";
-import { listUserRepos, listRepoIssues, getAuthenticatedUser } from "../github/client.js";
+import { listUserRepos, listRepoIssues, listRepoBranches, getAuthenticatedUser } from "../github/client.js";
 
 export const githubRouter: RouterType = Router();
 
@@ -46,6 +46,29 @@ githubRouter.get("/repos", async (req, res) => {
 
   const repos = await listUserRepos(token);
   res.json(repos);
+});
+
+// GET /api/github/repos/:owner/:repo/branches — list branches for a repo
+githubRouter.get("/repos/:owner/:repo/branches", async (req, res) => {
+  const user = (req as any).user;
+  if (!user) {
+    res.status(401).json({ error: "Authentication required" });
+    return;
+  }
+
+  const token = await getAccessToken(user.id);
+  if (!token) {
+    res.status(400).json({ error: "No GitHub account linked" });
+    return;
+  }
+
+  const { owner, repo } = req.params;
+  try {
+    const branches = await listRepoBranches(token, owner, repo);
+    res.json(branches);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || "Failed to fetch branches" });
+  }
 });
 
 // GET /api/github/repos/:owner/:repo/issues — list issues for a repo
