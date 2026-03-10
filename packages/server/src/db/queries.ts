@@ -135,6 +135,7 @@ export interface CreateIssueInput {
   githubIssueId?: number;
   githubIssueUrl?: string;
   createdByUserId?: string;
+  projectId?: string;
 }
 
 export async function nextIssueIdentifier(): Promise<string> {
@@ -159,6 +160,7 @@ export async function insertIssue(input: CreateIssueInput) {
       githubIssueId: input.githubIssueId ?? null,
       githubIssueUrl: input.githubIssueUrl ?? null,
       createdByUserId: input.createdByUserId ?? null,
+      projectId: input.projectId ?? null,
     },
   });
 }
@@ -176,11 +178,23 @@ export async function findAllIssues(filters?: {
   return prisma.issue.findMany({
     where,
     orderBy: [{ priority: "asc" }, { createdAt: "asc" }],
+    include: {
+      thread: {
+        select: { id: true, status: true, worktreeBranch: true },
+      },
+    },
   });
 }
 
 export async function findIssueById(id: string) {
-  return prisma.issue.findUnique({ where: { id } });
+  return prisma.issue.findUnique({
+    where: { id },
+    include: {
+      thread: {
+        select: { id: true, status: true, worktreeBranch: true },
+      },
+    },
+  });
 }
 
 export async function findIssueByIdentifier(identifier: string) {
@@ -210,6 +224,7 @@ export async function updateIssue(
     githubIssueId: "githubIssueId",
     githubIssueUrl: "githubIssueUrl",
     createdByUserId: "createdByUserId",
+    projectId: "projectId",
   };
 
   for (const [key, prismaKey] of Object.entries(fieldMap)) {

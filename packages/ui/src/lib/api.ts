@@ -110,18 +110,25 @@ export interface IssueItem {
   githubIssueUrl?: string | null;
   githubSyncedAt?: string | null;
   createdByUserId?: string | null;
+  projectId?: string | null;
+  thread?: {
+    id: string;
+    status: string;
+    worktreeBranch: string | null;
+  } | null;
 }
 
 export interface CreateIssueRequest {
   title: string;
   body?: string;
-  repo: string;
+  repo?: string;
   branch?: string;
   priority?: number;
   blueprintId?: string;
   templateId?: string;
   assignee?: string;
   labels?: string[];
+  projectId?: string;
 }
 
 export type Template = DevboxTemplate;
@@ -352,8 +359,8 @@ class PatchworkAPI {
     return request<void>(`/api/issues/${id}`, { method: "DELETE" });
   }
 
-  async dispatchIssue(id: string): Promise<IssueItem> {
-    return request<IssueItem>(`/api/issues/${id}/dispatch`, { method: "POST" });
+  async dispatchIssue(id: string): Promise<IssueItem & { thread?: { id: string; status: string; worktreeBranch: string | null } }> {
+    return request<IssueItem & { thread?: { id: string; status: string; worktreeBranch: string | null } }>(`/api/issues/${id}/dispatch`, { method: "POST" });
   }
 
   // GitHub
