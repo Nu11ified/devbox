@@ -93,26 +93,43 @@ export default function NewProjectPage() {
               >
                 Repository
               </label>
-              <select
-                id="repo"
-                value={repo}
-                onChange={(e) => setRepo(e.target.value)}
-                className="w-full bg-zinc-900 border border-zinc-700/50 focus:border-zinc-600 text-zinc-100 rounded-lg px-3 py-2 text-sm outline-none transition-colors appearance-none cursor-pointer"
-              >
-                <option value="" className="text-zinc-600">
-                  {loadingRepos ? "Loading repositories..." : "Select a repository"}
-                </option>
-                {repos.map((r: any) => (
-                  <option key={r.full_name} value={r.full_name}>
-                    {r.full_name}
+              {repos.length > 0 ? (
+                <select
+                  id="repo"
+                  value={repo}
+                  onChange={(e) => setRepo(e.target.value)}
+                  className="w-full bg-zinc-900 border border-zinc-700/50 focus:border-zinc-600 text-zinc-100 rounded-lg px-3 py-2 text-sm outline-none transition-colors appearance-none cursor-pointer"
+                >
+                  <option value="" className="text-zinc-600">
+                    Select a repository
                   </option>
-                ))}
-              </select>
+                  {repos.map((r: any) => (
+                    <option key={r.full_name} value={r.full_name}>
+                      {r.full_name}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <input
+                  id="repo"
+                  type="text"
+                  value={repo}
+                  onChange={(e) => setRepo(e.target.value)}
+                  placeholder="owner/repo"
+                  required
+                  className="w-full bg-zinc-900 border border-zinc-700/50 focus:border-zinc-600 text-zinc-100 rounded-lg px-3 py-2 text-sm outline-none transition-colors placeholder:text-zinc-600"
+                />
+              )}
               {loadingRepos && (
                 <div className="flex items-center gap-2 text-[10px] text-zinc-600">
                   <Loader2 className="h-3 w-3 animate-spin" />
                   Fetching repositories from GitHub...
                 </div>
+              )}
+              {!loadingRepos && repos.length === 0 && (
+                <p className="text-[10px] text-zinc-600">
+                  Enter as owner/repo (e.g. vercel/next.js)
+                </p>
               )}
             </div>
 

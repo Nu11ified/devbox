@@ -36,7 +36,7 @@ RUN cp packages/server/package.json /tmp/server-package.json && \
 # --- Runtime ---
 FROM oven/bun:1-slim
 
-RUN apt-get update -y && apt-get install -y openssl && rm -rf /var/lib/apt/lists/*
+RUN apt-get update -y && apt-get install -y openssl git && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
