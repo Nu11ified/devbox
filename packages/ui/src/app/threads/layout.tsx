@@ -1,7 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useMemo, useState, useEffect } from "react";
 import { ThreadSidebar } from "@/components/thread/sidebar";
 import {
   useKeyboardShortcuts,
@@ -14,61 +13,27 @@ export default function ThreadsLayout({
   children: React.ReactNode;
 }) {
   const [collapsed, setCollapsed] = useState(false);
-  const router = useRouter();
 
+  // Listen for toggle-sidebar events from global shortcuts
+  useEffect(() => {
+    function onToggleSidebar() {
+      setCollapsed((c) => !c);
+    }
+    window.addEventListener("toggle-sidebar", onToggleSidebar);
+    return () => window.removeEventListener("toggle-sidebar", onToggleSidebar);
+  }, []);
+
+  // Only keep layout-specific shortcuts that are NOT handled globally
   const shortcuts = useMemo<ShortcutConfig[]>(
     () => [
-      {
-        key: "n",
-        meta: true,
-        handler: () => router.push("/threads/new"),
-        description: "New thread",
-      },
-      {
-        key: "b",
-        meta: true,
-        handler: () =>
-          window.dispatchEvent(new CustomEvent("toggle-sidebar")),
-        description: "Toggle sidebar",
-      },
-      {
-        key: "d",
-        meta: true,
-        handler: () =>
-          window.dispatchEvent(new CustomEvent("toggle-diff")),
-        description: "Toggle diff panel",
-      },
-      {
-        key: "t",
-        meta: true,
-        handler: () =>
-          window.dispatchEvent(new CustomEvent("toggle-terminal")),
-        description: "Toggle terminal",
-      },
-      {
-        key: "k",
-        meta: true,
-        handler: () =>
-          window.dispatchEvent(new CustomEvent("focus-search")),
-        description: "Focus search",
-      },
       {
         key: "Escape",
         handler: () =>
           window.dispatchEvent(new CustomEvent("close-panels")),
         description: "Close panels",
       },
-      ...Array.from({ length: 9 }, (_, i) => ({
-        key: String(i + 1),
-        meta: true,
-        handler: () =>
-          window.dispatchEvent(
-            new CustomEvent("switch-thread", { detail: { index: i + 1 } }),
-          ),
-        description: `Switch to thread ${i + 1}`,
-      })),
     ],
-    [router],
+    [],
   );
 
   useKeyboardShortcuts(shortcuts);

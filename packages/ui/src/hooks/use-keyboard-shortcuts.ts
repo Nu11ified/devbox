@@ -7,7 +7,8 @@ export interface ShortcutConfig {
   meta?: boolean;
   shift?: boolean;
   handler: () => void;
-  description: string;
+  description?: string;
+  enabled?: boolean;
 }
 
 export function useKeyboardShortcuts(shortcuts: ShortcutConfig[]) {
@@ -20,6 +21,9 @@ export function useKeyboardShortcuts(shortcuts: ShortcutConfig[]) {
         target.isContentEditable;
 
       for (const shortcut of shortcuts) {
+        // Skip disabled shortcuts
+        if (shortcut.enabled === false) continue;
+
         const keyMatch = e.key.toLowerCase() === shortcut.key.toLowerCase();
         const metaMatch = shortcut.meta
           ? e.metaKey || e.ctrlKey
@@ -27,10 +31,8 @@ export function useKeyboardShortcuts(shortcuts: ShortcutConfig[]) {
         const shiftMatch = shortcut.shift ? e.shiftKey : !e.shiftKey;
 
         if (keyMatch && metaMatch && shiftMatch) {
-          // Allow Cmd+Enter while typing, block all other shortcuts
-          if (isTyping && !(shortcut.meta && shortcut.key === "Enter")) {
-            return;
-          }
+          // When typing in inputs, only allow Cmd-prefixed shortcuts
+          if (isTyping && !shortcut.meta) return;
           e.preventDefault();
           shortcut.handler();
           return;
