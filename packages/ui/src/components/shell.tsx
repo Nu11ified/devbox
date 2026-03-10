@@ -79,8 +79,10 @@ function ShellInner({ children }: { children: React.ReactNode }) {
   const isOnboarding = pathname === "/onboarding";
   const [checked, setChecked] = useState(false);
 
+  // Hooks must be called unconditionally (before any returns)
+  useGlobalShortcuts();
+
   useEffect(() => {
-    // Skip onboarding check for login and onboarding pages
     if (isLogin || isOnboarding) {
       setChecked(true);
       return;
@@ -94,7 +96,6 @@ function ShellInner({ children }: { children: React.ReactNode }) {
         setChecked(true);
       })
       .catch(() => {
-        // If the check fails (e.g., not authenticated yet), just show the page
         setChecked(true);
       });
   }, [isLogin, isOnboarding, router]);
@@ -104,10 +105,8 @@ function ShellInner({ children }: { children: React.ReactNode }) {
   }
 
   if (!checked) {
-    return null; // Brief loading state while checking onboarding
+    return null;
   }
-
-  useGlobalShortcuts();
 
   return (
     <div className="flex flex-col h-screen bg-background text-foreground">
