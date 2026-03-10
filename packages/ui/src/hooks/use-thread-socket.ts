@@ -172,12 +172,12 @@ export function useThreadSocket({ threadId, onEvent, onReconnect }: UseThreadSoc
 
   // sendTurn with HTTP fallback when WS is disconnected
   const sendTurn = useCallback(
-    (text: string, model?: string) => {
+    (text: string, model?: string, effort?: string) => {
       if (wsRef.current?.readyState === WebSocket.OPEN) {
-        send({ type: "thread.sendTurn", text, model });
+        send({ type: "thread.sendTurn", text, model, effort });
       } else if (threadId) {
         // Fallback: send via HTTP API
-        api.sendTurn(threadId, text, model).catch(console.error);
+        api.sendTurn(threadId, text, model, effort).catch(console.error);
       }
     },
     [send, threadId]

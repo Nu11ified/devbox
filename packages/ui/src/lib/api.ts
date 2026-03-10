@@ -519,10 +519,10 @@ class PatchworkAPI {
     });
   }
 
-  async sendTurn(threadId: string, text: string, model?: string): Promise<any> {
+  async sendTurn(threadId: string, text: string, model?: string, effort?: string): Promise<any> {
     return request<any>(`/api/threads/${threadId}/turns`, {
       method: "POST",
-      body: JSON.stringify({ text, model }),
+      body: JSON.stringify({ text, model, effort }),
     });
   }
 

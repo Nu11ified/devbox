@@ -215,7 +215,7 @@ export class ClaudeCodeAdapter implements ProviderAdapterShape {
       });
 
       // Fire off the Agent SDK query in the background
-      self.runAgentQuery(state, input.text, turnId, input.model).catch((err) => {
+      self.runAgentQuery(state, input.text, turnId, input.model, input.effort).catch((err) => {
         self.enqueue(
           self.makeEnvelope("runtime.error", input.threadId, {
             message: err?.message ?? String(err),
@@ -281,6 +281,7 @@ export class ClaudeCodeAdapter implements ProviderAdapterShape {
     text: string,
     turnId: TurnId,
     model?: string,
+    effort?: string,
   ): Promise<void> {
     const threadId = state.session.threadId;
     const isFullAccess = state.session.runtimeMode === "full-access";
@@ -330,7 +331,7 @@ export class ClaudeCodeAdapter implements ProviderAdapterShape {
       permissionMode,
       maxTurns: 50,
       maxBudgetUsd: 5.0,
-      effort: "high",
+      effort: effort || "high",
       abortController: state.abortController,
       env,
       includePartialMessages: true,

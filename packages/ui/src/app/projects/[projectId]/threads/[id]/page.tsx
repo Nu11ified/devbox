@@ -9,7 +9,7 @@ import { Timeline, type TimelineItem } from "@/components/thread/timeline";
 import { Composer } from "@/components/thread/composer";
 import { DiffPanel } from "@/components/thread/diff-panel";
 import { TerminalDrawer, type TerminalDrawerHandle } from "@/components/thread/terminal-drawer";
-import { Loader2, Trash2, Square, GitCompareArrows, TerminalIcon, GitPullRequest, Zap, Archive } from "lucide-react";
+import { Loader2, Trash2, Square, GitCompareArrows, TerminalIcon, GitPullRequest, Zap, Archive, DollarSign } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ErrorBoundary } from "@/components/error-boundary";
 
@@ -33,6 +33,8 @@ export default function ProjectThreadDetailPage() {
     }>
   >([]);
   const [terminalSessionId, setTerminalSessionId] = useState<string | null>(null);
+  const [costUsd, setCostUsd] = useState<number>(0);
+  const [numTurns, setNumTurns] = useState<number>(0);
   const terminalDrawerRef = useRef<TerminalDrawerHandle>(null);
   const assistantTextRef = useRef<string>("");
   const assistantItemIdRef = useRef<string | null>(null);
@@ -109,6 +111,16 @@ export default function ProjectThreadDetailPage() {
       setItems(initial);
       const lastTurn = (data.turns ?? []).findLast((t: any) => t.role === "assistant");
       setRunning(lastTurn?.status === "running");
+
+      // Sum cost/usage from persisted turn data
+      let totalCost = 0;
+      let totalTurns = 0;
+      for (const turn of data.turns ?? []) {
+        if (turn.tokenUsage?.totalCostUsd) totalCost = turn.tokenUsage.totalCostUsd;
+        if (turn.tokenUsage?.numTurns) totalTurns = turn.tokenUsage.numTurns;
+      }
+      if (totalCost > 0) setCostUsd(totalCost);
+      if (totalTurns > 0) setNumTurns(totalTurns);
     } catch (err) {
       console.error(err);
     } finally {
@@ -235,6 +247,12 @@ export default function ProjectThreadDetailPage() {
           break;
         }
 
+        case "session.configured": {
+          if (e.payload.totalCostUsd != null) setCostUsd(e.payload.totalCostUsd);
+          if (e.payload.numTurns != null) setNumTurns(e.payload.numTurns);
+          break;
+        }
+
         case "runtime.error": {
           setItems((prev) => [
             ...prev,
@@ -308,13 +326,13 @@ export default function ProjectThreadDetailPage() {
   }, []);
 
   const handleSend = useCallback(
-    (text: string, model?: string) => {
+    (text: string, model?: string, effort?: string) => {
       setItems((prev) => [
         ...prev,
         { id: `user-${Date.now()}`, kind: "user_message" as const, content: text },
       ]);
       setRunning(true);
-      sendTurn(text, model);
+      sendTurn(text, model, effort);
     },
     [sendTurn]
   );
@@ -394,6 +412,12 @@ export default function ProjectThreadDetailPage() {
               </span>
             )}
           </div>
+          {costUsd > 0 && (
+            <div className="flex items-center gap-1 text-[10px] font-mono text-zinc-500" title={`${numTurns} SDK turn${numTurns !== 1 ? "s" : ""}`}>
+              <DollarSign className="h-2.5 w-2.5" />
+              {costUsd < 0.01 ? "<$0.01" : `$${costUsd.toFixed(2)}`}
+            </div>
+          )}
           {running && (
             <div className="flex items-center gap-1.5">
               <Zap className="h-3 w-3 text-amber-500" />

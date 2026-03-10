@@ -29,11 +29,14 @@ export interface SessionStartInput {
   userId?: string;
 }
 
+export type EffortLevel = "low" | "medium" | "high" | "max";
+
 export interface SendTurnInput {
   threadId: ThreadId;
   text: string;
   attachments?: Array<{ type: "file"; path: string }>;
   model?: string;
+  effort?: EffortLevel;
 }
 
 export interface ProviderSession {

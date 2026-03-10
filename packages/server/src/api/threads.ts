@@ -249,7 +249,7 @@ export function threadsRouter(providerService: ProviderService, authProxy?: Auth
   // Send turn
   router.post("/:id/turns", async (req, res) => {
     try {
-      const { text, model, attachments } = req.body;
+      const { text, model, effort, attachments } = req.body;
       if (!text) return res.status(400).json({ error: "text is required" });
 
       const result = await Effect.runPromise(
@@ -257,6 +257,7 @@ export function threadsRouter(providerService: ProviderService, authProxy?: Auth
           threadId: ThreadId(req.params.id),
           text,
           model,
+          effort,
           attachments,
         })
       );

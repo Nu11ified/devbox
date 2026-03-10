@@ -5,8 +5,15 @@ import { Button } from "@/components/ui/button";
 import { Send, Square, Loader2, ArrowUp } from "lucide-react";
 import { cn } from "@/lib/utils";
 
+const EFFORT_LEVELS = [
+  { id: "low", label: "Low", description: "Fast, minimal reasoning" },
+  { id: "medium", label: "Med", description: "Balanced speed/quality" },
+  { id: "high", label: "High", description: "Thorough reasoning" },
+  { id: "max", label: "Max", description: "Maximum reasoning depth" },
+] as const;
+
 interface ComposerProps {
-  onSend: (text: string, model?: string) => void;
+  onSend: (text: string, model?: string, effort?: string) => void;
   onInterrupt: () => void;
   onStop: () => void;
   running: boolean;
@@ -42,18 +49,19 @@ export function Composer({
   const [selectedModel, setSelectedModel] = useState(
     defaultModel || availableModels[0]?.id || ""
   );
+  const [effort, setEffort] = useState("high");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const handleSend = useCallback(() => {
     const trimmed = text.trim();
     if (!trimmed) return;
-    onSend(trimmed, selectedModel || undefined);
+    onSend(trimmed, selectedModel || undefined, effort);
     setText("");
     if (textareaRef.current) {
       textareaRef.current.style.height = "auto";
     }
     textareaRef.current?.focus();
-  }, [text, selectedModel, onSend]);
+  }, [text, selectedModel, effort, onSend]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
@@ -104,6 +112,18 @@ export function Composer({
                   ))}
                 </select>
               )}
+              <select
+                value={effort}
+                onChange={(e) => setEffort(e.target.value)}
+                className="h-7 rounded-md border-0 bg-muted/40 px-2 text-[11px] font-mono text-muted-foreground/70 focus:outline-none focus:ring-1 focus:ring-primary/20 cursor-pointer hover:bg-muted/60 transition-colors"
+                title="Reasoning effort level"
+              >
+                {EFFORT_LEVELS.map((e) => (
+                  <option key={e.id} value={e.id}>
+                    {e.label}
+                  </option>
+                ))}
+              </select>
               {running && (
                 <div className="flex items-center gap-1.5">
                   <button

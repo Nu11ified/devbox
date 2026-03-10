@@ -195,6 +195,7 @@ async function handleCommand(
           threadId: tid,
           text: message.text,
           model: message.model,
+          effort: message.effort,
           attachments: message.attachments,
         })
       );
