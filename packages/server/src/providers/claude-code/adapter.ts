@@ -44,6 +44,7 @@ interface SessionState {
     workspacePath?: string;
     userId?: string;
     projectId?: string;
+    teamId?: string;
   };
   abortController: AbortController;
   pendingRequests: Map<string, PendingRequest>;
@@ -138,6 +139,25 @@ export class ClaudeCodeAdapter implements ProviderAdapterShape {
       };
 
       self.sessions.set(input.threadId as string, state);
+
+      // Look up teamId for the thread so SendMessage can route inter-agent messages
+      yield* Effect.tryPromise({
+        try: async () => {
+          const threadRecord = await prisma.thread.findUnique({
+            where: { id: input.threadId as string },
+            select: { teamId: true },
+          });
+          if (threadRecord?.teamId) {
+            state.session.teamId = threadRecord.teamId;
+          }
+        },
+        catch: () =>
+          new ProcessError({
+            threadId: input.threadId,
+            message: "Failed to look up teamId",
+            recoverable: false,
+          }),
+      });
 
       yield* Effect.tryPromise({
         try: () =>
@@ -656,6 +676,68 @@ export class ClaudeCodeAdapter implements ProviderAdapterShape {
                       todos: todoList,
                     }, turnId)
                   );
+                }
+              }
+            }
+          }
+        }
+
+        // --- SendMessage interception ---
+        // Route inter-agent messages to target thread and persist to DB
+        if (message.type === "assistant") {
+          const betaMessage = (message as any).message;
+          if (betaMessage?.content) {
+            for (const block of betaMessage.content) {
+              if (block.type === "tool_use" && block.name === "SendMessage") {
+                const input = block.input as Record<string, unknown>;
+                const teamId = state.session.teamId;
+                if (teamId) {
+                  const targetName = (input as any).teammate_name || (input as any).to;
+                  const msgContent = (input as any).content || (input as any).message || "";
+
+                  try {
+                    const targetMember = await prisma.teamMember.findFirst({
+                      where: { teamId, name: targetName },
+                    });
+                    const fromMember = await prisma.teamMember.findFirst({
+                      where: { teamId, threadId: threadId as string },
+                    });
+
+                    if (targetMember && msgContent) {
+                      await prisma.teamMessage.create({
+                        data: {
+                          teamId,
+                          fromThreadId: threadId as string,
+                          toThreadId: targetMember.threadId,
+                          content: msgContent,
+                        },
+                      });
+
+                      // Emit to target thread's WS clients
+                      await this.enqueue(
+                        this.makeEnvelope("team.message.received", ThreadId(targetMember.threadId), {
+                          teamId,
+                          fromThreadId: threadId as string,
+                          fromName: fromMember?.name ?? "unknown",
+                          content: msgContent,
+                          toThreadId: targetMember.threadId,
+                        }, turnId)
+                      );
+
+                      // Also emit to sender's WS clients
+                      await this.enqueue(
+                        this.makeEnvelope("team.message.received", threadId, {
+                          teamId,
+                          fromThreadId: threadId as string,
+                          fromName: fromMember?.name ?? "unknown",
+                          content: msgContent,
+                          toThreadId: targetMember.threadId,
+                        }, turnId)
+                      );
+                    }
+                  } catch (err: any) {
+                    console.warn("[claude-adapter] SendMessage routing failed:", err.message);
+                  }
                 }
               }
             }
