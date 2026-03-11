@@ -18,17 +18,29 @@ import {
   FolderOpen,
   Plus,
   GitBranch,
+  Users,
 } from "lucide-react";
-import type { ProjectItem } from "@/lib/api";
+import type { ProjectItem, TeamItem } from "@/lib/api";
 
 function ShellCommands() {
   const router = useRouter();
   const { registerCommands } = useCommandPalette();
   const [projects, setProjects] = useState<ProjectItem[]>([]);
+  const [teams, setTeams] = useState<Array<TeamItem & { projectId: string }>>([]);
 
   // Fetch projects for dynamic command palette entries
   useEffect(() => {
-    api.listProjects().then(setProjects).catch(() => {});
+    api.listProjects().then((ps) => {
+      setProjects(ps);
+      // Fetch teams for each project and flatten
+      Promise.all(
+        ps.map((p) =>
+          api.listTeams(p.id)
+            .then((ts) => ts.map((t) => ({ ...t, projectId: p.id })))
+            .catch(() => [] as Array<TeamItem & { projectId: string }>)
+        )
+      ).then((nested) => setTeams(nested.flat())).catch(() => {});
+    }).catch(() => {});
   }, []);
 
   // Static commands
@@ -91,6 +103,20 @@ function ShellCommands() {
     }));
     return registerCommands(cmds);
   }, [projects, registerCommands, router]);
+
+  // Dynamic team navigation commands
+  useEffect(() => {
+    if (teams.length === 0) return;
+    const cmds = teams.map((t) => ({
+      id: `team-${t.id}`,
+      label: `Team: ${t.name}`,
+      group: "Navigation" as const,
+      icon: Users,
+      shortcut: "",
+      onSelect: () => router.push(`/projects/${t.projectId}/teams/${t.id}`),
+    }));
+    return registerCommands(cmds);
+  }, [teams, registerCommands, router]);
 
   return null;
 }

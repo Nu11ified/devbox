@@ -3,9 +3,10 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { ArrowLeft, Plus, GitBranch, CircleDot, Archive, ArchiveRestore } from "lucide-react";
+import { ArrowLeft, Plus, GitBranch, CircleDot, Archive, ArchiveRestore, Users } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { api, type ProjectDetail } from "@/lib/api";
+import { api, type ProjectDetail, type TeamItem } from "@/lib/api";
+import { NewTeamDialog } from "@/components/team/new-team-dialog";
 
 // ── Helpers ────────────────────────────────────────────────────────
 
@@ -51,6 +52,8 @@ export function ProjectSidebar({
   const [project, setProject] = useState<ProjectDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const pathname = usePathname();
+  const [teams, setTeams] = useState<TeamItem[]>([]);
+  const [showNewTeam, setShowNewTeam] = useState(false);
   const [archiveOpen, setArchiveOpen] = useState(false);
   const [archiveIssues, setArchiveIssues] = useState<Array<{
     id: string;
@@ -83,6 +86,7 @@ export function ProjectSidebar({
           console.error("Failed to fetch project:", err);
           if (!cancelled) setLoading(false);
         });
+      api.listTeams(projectId).then((t) => { if (!cancelled) setTeams(t); }).catch(console.error);
     }
 
     fetchProject();
@@ -152,14 +156,17 @@ export function ProjectSidebar({
   }
 
   // Sort threads: active/starting first, then by updatedAt desc
+  const teamThreadIds = new Set(teams.flatMap((t) => t.members.map((m) => m.threadId)));
   const sortedThreads = project?.threads
-    ? [...project.threads].sort((a, b) => {
-        const activeStatuses = ["active", "starting"];
-        const aActive = activeStatuses.includes(a.status) ? 0 : 1;
-        const bActive = activeStatuses.includes(b.status) ? 0 : 1;
-        if (aActive !== bActive) return aActive - bActive;
-        return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
-      })
+    ? [...project.threads]
+        .filter((t) => !teamThreadIds.has(t.id))
+        .sort((a, b) => {
+          const activeStatuses = ["active", "starting"];
+          const aActive = activeStatuses.includes(a.status) ? 0 : 1;
+          const bActive = activeStatuses.includes(b.status) ? 0 : 1;
+          if (aActive !== bActive) return aActive - bActive;
+          return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
+        })
     : [];
 
   const projectStatusDot: Record<string, string> = {
@@ -234,6 +241,15 @@ export function ProjectSidebar({
             </span>
             <kbd className="text-[10px] text-zinc-600 font-mono">⌘N</kbd>
           </Link>
+          <button
+            onClick={() => setShowNewTeam(true)}
+            className="flex items-center justify-between w-full bg-zinc-800/30 hover:bg-zinc-700/40 border border-zinc-700/30 rounded-lg px-3 py-1.5 text-xs text-zinc-400 transition-colors mt-1"
+          >
+            <span className="flex items-center gap-2">
+              <Users className="h-3 w-3" />
+              New team
+            </span>
+          </button>
         </div>
 
         {/* ── Threads List ─────────────────────────────────── */}
@@ -311,6 +327,49 @@ export function ProjectSidebar({
                 );
               })}
             </div>
+          )}
+
+          {/* ── Teams Section ──────────────────────────────────── */}
+          {teams.length > 0 && (
+            <>
+              <div className="px-2 py-1.5 mt-3">
+                <span className="text-[10px] font-mono uppercase text-zinc-600 tracking-wider">
+                  Teams
+                </span>
+              </div>
+              <div className="space-y-0.5">
+                {teams.map((team) => {
+                  const isSelected = pathname.includes(`/teams/${team.id}`);
+                  const anyActive = team.members.some((m) =>
+                    ["active", "starting"].includes(m.thread.status)
+                  );
+                  return (
+                    <Link
+                      key={team.id}
+                      href={`/projects/${projectId}/teams/${team.id}`}
+                      className={cn(
+                        "flex items-center gap-2 rounded-lg px-2.5 py-1.5 transition-colors min-w-0",
+                        isSelected
+                          ? "bg-zinc-800/60 text-zinc-100"
+                          : "hover:bg-zinc-800/40 text-zinc-400",
+                      )}
+                    >
+                      <Users className="h-3.5 w-3.5 text-violet-500/60 shrink-0" />
+                      <span className="text-sm truncate flex-1">{team.name}</span>
+                      <span className="text-[10px] text-zinc-600 shrink-0">
+                        {team.members.length}
+                      </span>
+                      <span
+                        className={cn(
+                          "w-1.5 h-1.5 rounded-full shrink-0",
+                          anyActive ? "bg-emerald-400 animate-pulse" : "bg-zinc-600",
+                        )}
+                      />
+                    </Link>
+                  );
+                })}
+              </div>
+            </>
           )}
 
           {/* ── Issues Section ───────────────────────────────── */}
@@ -408,6 +467,11 @@ export function ProjectSidebar({
           </div>
         </div>
       </div>
+      <NewTeamDialog
+        projectId={projectId}
+        open={showNewTeam}
+        onClose={() => setShowNewTeam(false)}
+      />
     </div>
   );
 }
