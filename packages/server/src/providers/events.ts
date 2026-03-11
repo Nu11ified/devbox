@@ -133,6 +133,22 @@ export interface AskUserPayload {
   options: Array<{ label: string; value: string }>;
 }
 
+export interface TeamMessageReceivedPayload {
+  teamId: string;
+  fromThreadId: string;
+  fromName: string;
+  content: string;
+  toThreadId?: string;
+}
+
+export interface TeamTaskUpdatedPayload {
+  teamId: string;
+  taskId: string;
+  status: string;
+  ownedBy: string;
+  content: string;
+}
+
 // Discriminated Union
 export type ProviderRuntimeEvent =
   | { type: "session.started"; payload: SessionStartedPayload }
@@ -151,7 +167,9 @@ export type ProviderRuntimeEvent =
   | { type: "diff.updated"; payload: DiffUpdatedPayload }
   | { type: "todo.updated"; payload: TodoUpdatedPayload }
   | { type: "checkpoint.created"; payload: CheckpointCreatedPayload }
-  | { type: "ask_user"; payload: AskUserPayload };
+  | { type: "ask_user"; payload: AskUserPayload }
+  | { type: "team.message.received"; payload: TeamMessageReceivedPayload }
+  | { type: "team.task.updated"; payload: TeamTaskUpdatedPayload };
 
 // Envelope wrapping each event with metadata
 export interface ProviderEventEnvelope {
