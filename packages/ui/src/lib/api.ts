@@ -229,6 +229,52 @@ export interface CreateProjectRequest {
   branch?: string;
 }
 
+export interface TeamItem {
+  id: string;
+  name: string;
+  projectId: string;
+  status: string;
+  createdAt: string;
+  updatedAt: string;
+  members: TeamMemberItem[];
+}
+
+export interface TeamMemberItem {
+  id: string;
+  teamId: string;
+  threadId: string;
+  role: string;
+  name: string;
+  thread: {
+    id: string;
+    title: string;
+    status: string;
+    model?: string | null;
+    runtimeMode?: string;
+  };
+}
+
+export interface TeamMessageItem {
+  id: string;
+  teamId: string;
+  fromThreadId: string;
+  toThreadId: string | null;
+  content: string;
+  createdAt: string;
+  fromName: string;
+  toName: string;
+}
+
+export interface CreateTeamRequest {
+  name: string;
+  agentCount?: number;
+  agentNames?: string[];
+  runtimeMode?: string;
+  initialPrompt?: string;
+  provider?: string;
+  model?: string;
+}
+
 // ── API Client ─────────────────────────────────────────────────────
 
 // API requests are proxied through Next.js rewrites (same origin, no CORS)
@@ -608,6 +654,42 @@ class PatchworkAPI {
     return request<{ prUrl: string; prNumber: number }>(`/api/projects/${projectId}/merge-prs`, {
       method: "POST",
     });
+  }
+
+  // ── Teams API ───────────────────────────────────────────────────
+  async listTeams(projectId: string): Promise<TeamItem[]> {
+    return request<TeamItem[]>(`/api/projects/${projectId}/teams`);
+  }
+
+  async getTeam(projectId: string, teamId: string): Promise<TeamItem> {
+    return request<TeamItem>(`/api/projects/${projectId}/teams/${teamId}`);
+  }
+
+  async createTeam(projectId: string, input: CreateTeamRequest): Promise<TeamItem> {
+    return request<TeamItem>(`/api/projects/${projectId}/teams`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    });
+  }
+
+  async stopTeam(projectId: string, teamId: string): Promise<{ ok: boolean }> {
+    return request<{ ok: boolean }>(`/api/projects/${projectId}/teams/${teamId}/stop`, {
+      method: "POST",
+    });
+  }
+
+  async archiveTeam(projectId: string, teamId: string): Promise<{ ok: boolean }> {
+    return request<{ ok: boolean }>(`/api/projects/${projectId}/teams/${teamId}`, {
+      method: "DELETE",
+    });
+  }
+
+  async getTeamMessages(projectId: string, teamId: string): Promise<TeamMessageItem[]> {
+    return request<TeamMessageItem[]>(`/api/projects/${projectId}/teams/${teamId}/messages`);
+  }
+
+  async getTeamTasks(projectId: string, teamId: string): Promise<any[]> {
+    return request<any[]>(`/api/projects/${projectId}/teams/${teamId}/tasks`);
   }
 
   // ── Plugins API ──────────────────────────────────────────────────
