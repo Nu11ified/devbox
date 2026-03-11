@@ -202,6 +202,7 @@ model User {
   issues           Issue[]
   threads          Thread[]
   projects         Project[]
+  teams            Team[]
   installedPlugins InstalledPlugin[]
 
   @@map("user")
@@ -224,6 +225,7 @@ model Project {
   user    User     @relation(fields: [userId], references: [id])
   threads Thread[]
   issues  Issue[]
+  teams   Team[]
 
   @@index([userId])
   @@map("projects")
@@ -293,6 +295,59 @@ model UserSettings {
   @@map("user_settings")
 }
 
+// ─── Agent Teams ──────────────────────────────────────────────────
+
+model Team {
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name        String
+  projectId   String    @map("project_id") @db.Uuid
+  userId      String    @map("user_id")
+  status      String    @default("active")
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt   DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  project     Project   @relation(fields: [projectId], references: [id])
+  user        User      @relation(fields: [userId], references: [id])
+  members     TeamMember[]
+  threads     Thread[]
+  messages    TeamMessage[]
+
+  @@index([projectId])
+  @@index([userId])
+  @@map("teams")
+}
+
+model TeamMember {
+  id        String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  teamId    String  @map("team_id") @db.Uuid
+  threadId  String  @map("thread_id") @db.Uuid
+  role      String  @default("teammate")
+  name      String
+
+  team      Team    @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  thread    Thread  @relation(fields: [threadId], references: [id], onDelete: Cascade)
+
+  @@unique([teamId, threadId])
+  @@index([teamId])
+  @@map("team_members")
+}
+
+model TeamMessage {
+  id            String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  teamId        String    @map("team_id") @db.Uuid
+  fromThreadId  String    @map("from_thread_id") @db.Uuid
+  toThreadId    String?   @map("to_thread_id") @db.Uuid
+  content       String
+  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz
+
+  team          Team      @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  fromThread    Thread    @relation("MessageFrom", fields: [fromThreadId], references: [id])
+  toThread      Thread?   @relation("MessageTo", fields: [toThreadId], references: [id])
+
+  @@index([teamId])
+  @@map("team_messages")
+}
+
 // ─── Thread system (provider adapter layer) ───────────────────────
 
 model Thread {
@@ -311,16 +366,21 @@ model Thread {
   projectId      String?  @map("project_id") @db.Uuid
   worktreePath   String?  @map("worktree_path")
   worktreeBranch String?  @map("worktree_branch")
+  teamId         String?  @map("team_id") @db.Uuid
   archivedAt     DateTime? @map("archived_at") @db.Timestamptz
   createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt      DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  issue    Issue?          @relation(fields: [issueId], references: [id])
-  user     User?           @relation(fields: [userId], references: [id])
-  project  Project?        @relation(fields: [projectId], references: [id])
-  sessions ThreadSession[]
-  turns    ThreadTurn[]
-  events   ThreadEvent[]
+  issue            Issue?          @relation(fields: [issueId], references: [id])
+  user             User?           @relation(fields: [userId], references: [id])
+  project          Project?        @relation(fields: [projectId], references: [id])
+  team             Team?           @relation(fields: [teamId], references: [id])
+  teamMember       TeamMember[]
+  sentMessages     TeamMessage[]   @relation("MessageFrom")
+  receivedMessages TeamMessage[]   @relation("MessageTo")
+  sessions         ThreadSession[]
+  turns            ThreadTurn[]
+  events           ThreadEvent[]
 
   @@index([status])
   @@index([userId])
