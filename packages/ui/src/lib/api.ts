@@ -442,6 +442,12 @@ class PatchworkAPI {
     return request<IssueItem & { thread?: { id: string; status: string; worktreeBranch: string | null } }>(`/api/issues/${id}/dispatch`, { method: "POST" });
   }
 
+  async archiveIssue(id: string): Promise<{ ok: boolean; archived: boolean }> {
+    return request<{ ok: boolean; archived: boolean }>(`/api/issues/${id}/archive`, {
+      method: "PATCH",
+    });
+  }
+
   // Archive
   async searchArchive(params?: {
     q?: string;
