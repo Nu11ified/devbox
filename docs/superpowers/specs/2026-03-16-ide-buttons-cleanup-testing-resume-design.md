@@ -17,28 +17,39 @@ Allow users to open a thread's worktree in VS Code or Cursor via SSH remote, see
 
 ### Design
 
-**Setting storage:** Add an `sshHost` field to the `User` model (or a new `UserSettings` model). Configurable from the existing Settings page.
+**Setting storage:** Add `sshHost String? @map("ssh_host")` to the existing `UserSettings` model in `packages/server/prisma/schema.prisma`. Configurable from the existing Settings page.
 
 **URI scheme:**
 - VS Code: `vscode://vscode-remote/ssh-remote+{sshHost}{worktreePath}`
 - Cursor: `cursor://vscode-remote/ssh-remote+{sshHost}{worktreePath}`
 
-**UI placement:** Two icon buttons in the thread detail page header bar, alongside the existing Diff/Terminal/PR/Archive buttons. Only visible when the thread has a non-null `worktreePath`.
+**UI placement:** Two icon buttons in the thread detail page header bar, alongside the existing Diff/Terminal/PR/Archive buttons. Only visible when the thread has a non-null `worktreePath` AND the user has configured `sshHost` in settings.
 
 **Behavior:** `window.open(uri)` — the OS handles the protocol, launching the IDE with Remote SSH extension connecting to the worktree directory.
 
 **Real-time sync:** Guaranteed by filesystem — the worktree is a real directory on the remote host. VS Code/Cursor file watchers detect changes automatically.
 
+**Note:** The SSH host must be a machine the user can SSH into where the worktrees reside. For local dev (e.g., `THREADS_DIR=/tmp/patchwork`), `sshHost` can be `localhost` or left unconfigured (buttons hidden).
+
+### Schema Change
+
+```prisma
+model UserSettings {
+  // ... existing fields ...
+  sshHost String? @map("ssh_host")
+}
+```
+
 ### API Changes
 
-- `GET /api/settings` — returns user settings including `sshHost`
-- `PUT /api/settings` — updates user settings (sshHost, etc.)
-- Settings stored on the `User` model or a related `UserSettings` record
+- Extend existing `GET /api/settings` to include `sshHost` in response
+- Extend existing `PUT /api/settings` to accept and persist `sshHost`
+- File: `packages/server/src/api/settings.ts` — add `sshHost` to the destructuring and `data` assignment
 
 ### UI Changes
 
 - `packages/ui/src/app/projects/[projectId]/threads/[id]/page.tsx` — add VS Code and Cursor buttons to header
-- `packages/ui/src/app/settings/page.tsx` — add SSH Host input field
+- `packages/ui/src/app/settings/page.tsx` — add SSH Host input field in connection settings
 
 ---
 
@@ -50,7 +61,7 @@ When a thread is archived, stop the active session and destroy the devbox contai
 
 ### Design
 
-**Archive endpoint changes** (`PATCH /api/threads/:id/archive`):
+**Thread archive endpoint changes** (`PATCH /api/threads/:id/archive` in `threads.ts`):
 
 When archiving (not unarchiving):
 1. Stop active session via `providerService.stopThread()` if thread status is active
@@ -64,7 +75,11 @@ This mirrors the cleanup logic already in the delete endpoint.
 
 ### Issue Archival
 
-Same treatment for issues — if issues have associated threads (dispatched worktree threads), archiving the issue should also clean up those thread containers.
+**New endpoint:** `PATCH /api/issues/:id/archive` in `issues.ts` (does not currently exist).
+
+The `Issue` model already has an `archivedAt` column. This new endpoint:
+1. Toggles `archivedAt` on the issue
+2. If archiving AND the issue has an associated dispatched thread (via `Thread.issueId`), also archive that thread with the same cleanup (stop session, destroy devbox)
 
 ---
 
@@ -77,25 +92,30 @@ Add vitest tests for every major feature to ensure consistency and prevent regre
 ### Current State
 
 - Vitest is installed in `packages/server` with `vitest.config.ts`
-- ~20 test files exist in `packages/server/tests/`
+- 20 test files exist in `packages/server/tests/`
 - Root `package.json` has `"test": "bun --filter '*' test"`
 
 ### Test Plan
 
-Add or expand tests for:
+**Expand existing test files:**
+
+| Area | File | Additional Coverage |
+|------|------|----------|
+| Threads API | `threads-api.test.ts` | Archive with container cleanup, PR creation, worktree lifecycle |
+| DevboxManager | `devbox-manager.test.ts` | Edge cases: double-destroy, list filtering |
+| Provider service | `provider-service.test.ts` | Resume flow, stop on archive |
+
+**Create new test files:**
 
 | Area | File | Coverage |
 |------|------|----------|
-| Threads API | `threads-api.test.ts` | CRUD, send turn, archive with cleanup, delete with cleanup, PR creation |
 | Projects API | `projects-api.test.ts` | CRUD, settings, list threads |
-| Issues API | `issues-api.test.ts` | CRUD, dispatch to thread, archive |
+| Issues API | `issues-api.test.ts` | CRUD, dispatch to thread, archive with cleanup |
 | Settings API | `settings-api.test.ts` | Get/update SSH host setting |
 | Git worktrees | `worktree.test.ts` | Create, remove, list worktrees |
-| DevboxManager | `devbox-manager.test.ts` | Create, exec, destroy, list (expand existing) |
 | Session persistence | `session-persistence.test.ts` | Session creation, cursor storage, resume flow |
-| Archive search | `archive-search.test.ts` | Full-text search, filtering |
-| Provider service | `provider-service.test.ts` | Start/stop/resume sessions (expand existing) |
-| WebSocket events | `thread-ws.test.ts` | Event streaming, reconnection |
+| Archive search | `archive-search.test.ts` | Full-text search, filtering by project |
+| WebSocket events | `thread-ws.test.ts` | Event streaming, message types, reconnection |
 
 ### Testing Strategy
 
@@ -121,21 +141,23 @@ Complete the partially-implemented session resume feature so users can explicitl
 
 ### Design
 
-**Resume button:** Add a "Resume" action to idle threads in the thread detail page. When clicked, sends a `thread.continueSession` WebSocket message (the parameter already exists in the API).
+**Resume button:** Add a "Resume" action to idle threads in the thread detail page. Visible when `thread.status !== "active"` AND `thread.sessions?.[0]?.resumeCursor != null`. When clicked, sends a `thread.continueSession` WebSocket message.
 
-**Resume event:** Emit a `session.resumed` event from the provider service when resume succeeds, so the UI can display a notification or status indicator.
+**New WS message type:** Add `case "thread.continueSession"` to the WebSocket handler in `thread-ws.ts`. This is a NEW case (does not currently exist). Payload: `{ type: "thread.continueSession" }`. It calls `providerService.ensureSession()` which already handles resume via `resumeCursor`.
 
-**Error handling:** If resume fails (e.g., session expired), fall back to starting a fresh session and notify the user that context was lost.
+**Resume event:** Emit a `session.resumed` event from the provider service when resume succeeds. Payload: `{ sessionId: string; resumedFrom: string | null }`. Add this event type to the event type definitions in `packages/server/src/providers/events.ts`.
+
+**Error handling:** If resume fails (e.g., session expired), fall back to starting a fresh session and notify the user via a `runtime.warning` event that context was lost.
 
 ### API Changes
 
-- Wire existing `continueSession` parameter in thread-ws message handler
-- Add `session.resumed` event type to the event stream
+- Add `case "thread.continueSession"` to `thread-ws.ts` WebSocket message handler
+- Add `session.resumed` event type with payload `{ sessionId: string; resumedFrom: string | null }` to `events.ts`
 
 ### UI Changes
 
-- Add "Resume" button to thread header (visible when thread is idle and has a previous session)
-- Show toast/status when resume succeeds or fails
+- Add "Resume" button to thread header (visible when `!running && thread.sessions?.[0]?.resumeCursor`)
+- Show toast when resume succeeds (`session.resumed` event) or fails (`runtime.warning`)
 
 ---
 
