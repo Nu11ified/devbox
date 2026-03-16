@@ -9,7 +9,7 @@ import { Timeline, type TimelineItem } from "@/components/thread/timeline";
 import { Composer } from "@/components/thread/composer";
 import { DiffPanel } from "@/components/thread/diff-panel";
 import { TerminalDrawer, type TerminalDrawerHandle } from "@/components/thread/terminal-drawer";
-import { Loader2, Trash2, Square, GitCompareArrows, TerminalIcon, GitPullRequest, Zap, Archive, DollarSign, Undo2, GitFork, MonitorSmartphone } from "lucide-react";
+import { Loader2, Trash2, Square, GitCompareArrows, TerminalIcon, GitPullRequest, Zap, Archive, DollarSign, Undo2, GitFork, MonitorSmartphone, RotateCcw } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ErrorBoundary } from "@/components/error-boundary";
 
@@ -318,6 +318,11 @@ export default function ProjectThreadDetailPage() {
           break;
         }
 
+        case "session.resumed": {
+          setRunning(true);
+          break;
+        }
+
         case "session.exited": {
           setRunning(false);
           break;
@@ -448,6 +453,13 @@ export default function ProjectThreadDetailPage() {
     window.open(uri, "_blank");
   }
 
+  function handleResume() {
+    send({ type: "thread.continueSession" });
+    setRunning(true);
+  }
+
+  const canResume = !running && !loading && thread?.sessions?.[0]?.resumeCursor;
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-full">
@@ -561,6 +573,16 @@ export default function ProjectThreadDetailPage() {
             >
               <GitFork className="h-3 w-3" />
               Fork
+            </button>
+          )}
+          {canResume && (
+            <button
+              onClick={handleResume}
+              className="flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-mono text-cyan-500/70 hover:bg-cyan-500/10 transition-colors"
+              title="Resume previous session"
+            >
+              <RotateCcw className="h-3 w-3" />
+              Resume
             </button>
           )}
           {thread?.repo && (
