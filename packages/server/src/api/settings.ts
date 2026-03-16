@@ -49,6 +49,7 @@ settingsRouter.put("/", async (req, res) => {
     defaultEffort,
     defaultTeamSize,
     anthropicApiKey,
+    sshHost,
   } = req.body;
 
   const data: Record<string, unknown> = {};
@@ -64,6 +65,7 @@ settingsRouter.put("/", async (req, res) => {
   if (defaultEffort !== undefined) data.defaultEffort = defaultEffort;
   if (defaultTeamSize !== undefined) data.defaultTeamSize = defaultTeamSize;
   if (anthropicApiKey !== undefined) data.anthropicApiKey = anthropicApiKey;
+  if (sshHost !== undefined) data.sshHost = sshHost;
 
   const settings = await prisma.userSettings.upsert({
     where: { userId: user.id },

@@ -367,6 +367,19 @@ async function handleCommand(
       break;
     }
 
+    case "thread.continueSession": {
+      const creds = await resolveUserCredentials(userId);
+      await Effect.runPromise(
+        providerService.ensureSession(tid, creds)
+      );
+      ws.send(JSON.stringify({
+        type: "thread.session.status",
+        threadId,
+        status: "active",
+      }));
+      break;
+    }
+
     default:
       ws.send(
         JSON.stringify({

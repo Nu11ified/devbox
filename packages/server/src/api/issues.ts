@@ -98,6 +98,31 @@ issuesRouter.delete("/:id", async (req, res) => {
   res.status(204).send();
 });
 
+// PATCH /api/issues/:id/archive - toggle archive
+issuesRouter.patch("/:id/archive", async (req, res) => {
+  try {
+    const issue = await prisma.issue.findFirst({
+      where: { id: req.params.id },
+    });
+    if (!issue) {
+      res.status(404).json({ error: "Issue not found" });
+      return;
+    }
+
+    const archiving = !issue.archivedAt;
+    const archivedAt = archiving ? new Date() : null;
+
+    await prisma.issue.update({
+      where: { id: issue.id },
+      data: { archivedAt },
+    });
+
+    res.json({ ok: true, archived: archiving });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // POST /api/issues/:id/dispatch — queue an issue for the autonomous orchestrator
 issuesRouter.post("/:id/dispatch", async (req, res) => {
   const issue = await findIssueById(req.params.id);

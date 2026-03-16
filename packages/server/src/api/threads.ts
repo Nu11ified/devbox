@@ -411,13 +411,31 @@ export function threadsRouter(providerService: ProviderService, authProxy?: Auth
       });
       if (!thread) return res.status(404).json({ error: "Thread not found" });
 
-      const archivedAt = thread.archivedAt ? null : new Date();
+      const archiving = !thread.archivedAt;
+      const archivedAt = archiving ? new Date() : null;
+
+      // Cleanup when archiving (not unarchiving)
+      if (archiving) {
+        try {
+          if (thread.status === "active") {
+            await Effect.runPromise(
+              providerService.stopThread(ThreadId(thread.id))
+            ).catch(() => {});
+          }
+          if (thread.devboxId) {
+            await devboxManager.destroy(thread.devboxId).catch(() => {});
+          }
+        } catch {
+          // Cleanup errors should not prevent archival
+        }
+      }
+
       await prisma.thread.update({
         where: { id: thread.id },
         data: { archivedAt },
       });
 
-      res.json({ ok: true, archived: !!archivedAt });
+      res.json({ ok: true, archived: archiving });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
