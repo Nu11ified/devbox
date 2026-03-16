@@ -291,6 +291,7 @@ model UserSettings {
   defaultEffort        String? @map("default_effort")
   defaultTeamSize      Int?    @map("default_team_size")
   anthropicApiKey      String? @map("anthropic_api_key")
+  sshHost              String? @map("ssh_host")
 
   user User @relation(fields: [userId], references: [id])
 
