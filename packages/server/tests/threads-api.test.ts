@@ -37,7 +37,23 @@ vi.mock("../src/db/prisma.js", () => ({
     session: {
       findUnique: vi.fn().mockResolvedValue(null),
     },
+    project: {
+      findUnique: vi.fn().mockResolvedValue(null),
+    },
+    user: {
+      findUnique: vi.fn().mockResolvedValue(null),
+    },
   },
+}));
+
+vi.mock("../src/git/worktree.js", () => ({
+  createWorktree: vi.fn(),
+  removeWorktree: vi.fn(),
+}));
+
+vi.mock("../src/git/pr.js", () => ({
+  commitAllChanges: vi.fn().mockReturnValue(true),
+  pushBranch: vi.fn(),
 }));
 
 vi.mock("../src/devbox/manager.js", () => ({
@@ -71,6 +87,7 @@ import { DevboxManager } from "../src/devbox/manager.js";
 import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { threadsRouter } from "../src/api/threads.js";
+import { removeWorktree } from "../src/git/worktree.js";
 import type { ProviderService } from "../src/providers/service.js";
 import { ThreadId } from "../src/providers/types.js";
 
@@ -248,19 +265,25 @@ describe("Threads API", () => {
       expect(res.body.error).toMatch(/token/i);
     });
 
-    it("success path with devboxId — runs git in container and creates PR", async () => {
+    it("success path — commits changes and creates PR via Octokit", async () => {
       vi.mocked(prisma.thread.findUnique).mockResolvedValueOnce({
         id: "thread-1",
         title: "PR Thread",
         repo: "owner/repo",
         branch: "main",
-        devboxId: "ctr-dev-1",
+        devboxId: null,
         workspacePath: "/workspace",
+        worktreePath: null,
+        worktreeBranch: null,
+        projectId: null,
+        project: null,
       } as any);
       vi.mocked(prisma.account.findFirst).mockResolvedValueOnce({
         accessToken: "ghp_test",
       } as any);
       vi.mocked(prisma.thread.update).mockResolvedValueOnce({} as any);
+
+      const { commitAllChanges, pushBranch } = await import("../src/git/pr.js");
 
       const res = await request(app).post("/api/threads/thread-1/pr");
 
@@ -268,33 +291,40 @@ describe("Threads API", () => {
       expect(res.body.prUrl).toBe("https://github.com/owner/repo/pull/42");
       expect(res.body.prNumber).toBe(42);
 
-      // Should run 4 git commands via runInContainer (checkout, add, commit, push)
-      const dmInstance = mockDevboxInstance;
-      expect(dmInstance.runInContainer).toHaveBeenCalledTimes(4);
-      // Should NOT call execFileSync for git
-      expect(execFileSync).not.toHaveBeenCalled();
+      // commitAllChanges and pushBranch should be called
+      expect(commitAllChanges).toHaveBeenCalledTimes(1);
+      expect(pushBranch).toHaveBeenCalledTimes(1);
     });
 
-    it("success path without devboxId — runs git via execFileSync", async () => {
+    it("success path with worktreeBranch — uses existing branch name", async () => {
       vi.mocked(prisma.thread.findUnique).mockResolvedValueOnce({
         id: "thread-1",
-        title: "PR Thread Host",
+        title: "PR Thread WT",
         repo: "owner/repo",
         branch: "main",
         devboxId: null,
         workspacePath: "/workspace",
+        worktreePath: "/projects/p1/worktrees/abc",
+        worktreeBranch: "feature-xyz",
+        projectId: "proj-1",
+        project: { id: "proj-1", repo: "owner/repo", branch: "main" },
       } as any);
       vi.mocked(prisma.account.findFirst).mockResolvedValueOnce({
         accessToken: "ghp_test",
       } as any);
       vi.mocked(prisma.thread.update).mockResolvedValueOnce({} as any);
 
+      const { pushBranch } = await import("../src/git/pr.js");
+
       const res = await request(app).post("/api/threads/thread-1/pr");
 
       expect(res.status).toBe(200);
-      expect(res.body.prUrl).toBe("https://github.com/owner/repo/pull/42");
-      // 4 git commands via execFileSync (checkout, add, commit, push)
-      expect(execFileSync).toHaveBeenCalledTimes(4);
+      expect(res.body.branch).toBe("feature-xyz");
+      // Should NOT call execFileSync for checkout since worktreeBranch is set
+      expect(execFileSync).not.toHaveBeenCalled();
+      expect(pushBranch).toHaveBeenCalledWith(
+        expect.objectContaining({ branch: "feature-xyz" })
+      );
     });
   });
 
@@ -356,6 +386,44 @@ describe("Threads API", () => {
       );
     });
 
+    it("removes git worktree when thread has worktreePath and projectId", async () => {
+      vi.mocked(prisma.thread.findUnique).mockResolvedValueOnce({
+        id: "thread-1",
+        status: "idle",
+        devboxId: null,
+        worktreePath: "/projects/p1/worktrees/abc12345",
+        projectId: "project-1",
+      } as any);
+      vi.mocked(prisma.project.findUnique).mockResolvedValueOnce({
+        id: "project-1",
+        workspacePath: "/projects/p1/repo",
+      } as any);
+
+      const res = await request(app).delete("/api/threads/thread-1");
+
+      expect(res.status).toBe(200);
+      expect(res.body.ok).toBe(true);
+      expect(removeWorktree).toHaveBeenCalledWith(
+        "/projects/p1/repo",
+        "/projects/p1/worktrees/abc12345"
+      );
+    });
+
+    it("does not remove worktree when thread has no projectId", async () => {
+      vi.mocked(prisma.thread.findUnique).mockResolvedValueOnce({
+        id: "thread-1",
+        status: "idle",
+        devboxId: null,
+        worktreePath: "/some/path",
+        projectId: null,
+      } as any);
+
+      const res = await request(app).delete("/api/threads/thread-1");
+
+      expect(res.status).toBe(200);
+      expect(removeWorktree).not.toHaveBeenCalled();
+    });
+
     it("succeeds even if cleanup errors occur", async () => {
       const dmInstance = mockDevboxInstance;
       dmInstance.destroy.mockRejectedValueOnce(new Error("container gone"));
@@ -404,7 +472,7 @@ describe("Threads API", () => {
       expect(res.body).toHaveLength(2);
       expect(prisma.thread.findMany).toHaveBeenCalledWith(
         expect.objectContaining({
-          where: { userId: "user-1" },
+          where: expect.objectContaining({ userId: "user-1" }),
         })
       );
     });
