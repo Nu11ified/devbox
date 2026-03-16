@@ -9,7 +9,7 @@ import { Timeline, type TimelineItem } from "@/components/thread/timeline";
 import { Composer } from "@/components/thread/composer";
 import { DiffPanel } from "@/components/thread/diff-panel";
 import { TerminalDrawer, type TerminalDrawerHandle } from "@/components/thread/terminal-drawer";
-import { Loader2, Trash2, Square, GitCompareArrows, TerminalIcon, GitPullRequest, Zap, Archive, DollarSign, Undo2, GitFork } from "lucide-react";
+import { Loader2, Trash2, Square, GitCompareArrows, TerminalIcon, GitPullRequest, Zap, Archive, DollarSign, Undo2, GitFork, MonitorSmartphone } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ErrorBoundary } from "@/components/error-boundary";
 
@@ -36,6 +36,7 @@ export default function ProjectThreadDetailPage() {
   const [costUsd, setCostUsd] = useState<number>(0);
   const [numTurns, setNumTurns] = useState<number>(0);
   const [checkpoints, setCheckpoints] = useState<string[]>([]);
+  const [sshHost, setSshHost] = useState<string | null>(null);
   const terminalDrawerRef = useRef<TerminalDrawerHandle>(null);
   const assistantTextRef = useRef<string>("");
   const assistantItemIdRef = useRef<string | null>(null);
@@ -131,6 +132,12 @@ export default function ProjectThreadDetailPage() {
 
   // Load on mount
   useEffect(() => { loadThread(); }, [loadThread]);
+
+  useEffect(() => {
+    api.getSettings().then((s: any) => {
+      if (s.sshHost) setSshHost(s.sshHost);
+    }).catch(() => {});
+  }, []);
 
   const handleEvent = useCallback((event: ThreadEvent) => {
     if (event.type === "thread.turn.started") {
@@ -435,6 +442,12 @@ export default function ProjectThreadDetailPage() {
     }
   }
 
+  function openInIDE(scheme: "vscode" | "cursor") {
+    if (!sshHost || !thread?.worktreePath) return;
+    const uri = `${scheme}://vscode-remote/ssh-remote+${sshHost}${thread.worktreePath}`;
+    window.open(uri, "_blank");
+  }
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-full">
@@ -498,6 +511,26 @@ export default function ProjectThreadDetailPage() {
             <TerminalIcon className="h-3 w-3" />
             Terminal
           </button>
+          {thread?.worktreePath && sshHost && (
+            <>
+              <button
+                onClick={() => openInIDE("vscode")}
+                className="flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-mono text-blue-500/70 hover:bg-blue-500/10 transition-colors"
+                title="Open in VS Code (SSH Remote)"
+              >
+                <MonitorSmartphone className="h-3 w-3" />
+                VS Code
+              </button>
+              <button
+                onClick={() => openInIDE("cursor")}
+                className="flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-mono text-purple-500/70 hover:bg-purple-500/10 transition-colors"
+                title="Open in Cursor (SSH Remote)"
+              >
+                <MonitorSmartphone className="h-3 w-3" />
+                Cursor
+              </button>
+            </>
+          )}
           {checkpoints.length > 0 && !running && (
             <button
               onClick={() => {
