@@ -244,6 +244,7 @@ export function SettingsForm() {
     useState<RuntimeMode>("approval-required");
   const [defaultEffort, setDefaultEffort] = useState<EffortLevel>("high");
   const [defaultTeamSize, setDefaultTeamSize] = useState(3);
+  const [sshHost, setSshHost] = useState("");
 
   // Subscription toggles (server-persisted)
   const [claudeSub, setClaudeSub] = useState(false);
@@ -270,6 +271,7 @@ export function SettingsForm() {
         if (s.defaultRuntimeMode) setDefaultRuntimeMode(s.defaultRuntimeMode);
         if (s.defaultEffort) setDefaultEffort(s.defaultEffort);
         if (s.defaultTeamSize) setDefaultTeamSize(s.defaultTeamSize);
+        if (s.sshHost) setSshHost(s.sshHost);
         // Populate selected repos from server
         if (Array.isArray(s.selectedRepos)) {
           setSelectedRepos(new Set(s.selectedRepos));
@@ -348,6 +350,11 @@ export function SettingsForm() {
   const saveTeamSize = useCallback((v: number) => {
     setDefaultTeamSize(v);
     api.updateSettings({ defaultTeamSize: v });
+  }, []);
+
+  const saveSshHost = useCallback((v: string) => {
+    setSshHost(v);
+    api.updateSettings({ sshHost: v || null });
   }, []);
 
   async function handleSaveToken(provider: "claude" | "codex", token: string) {
@@ -739,6 +746,28 @@ export function SettingsForm() {
               Pre-filled when creating new agent teams.
             </p>
           </div>
+        </div>
+      </Section>
+
+      {/* ── Remote Access ──────────────────────────────────── */}
+      <Section
+        icon={Globe}
+        title="Remote Access"
+        description="Configure SSH access for opening thread worktrees in VS Code or Cursor."
+      >
+        <div className="space-y-1.5">
+          <Label className="text-[11px] font-mono uppercase tracking-wider text-zinc-500">
+            SSH Host
+          </Label>
+          <Input
+            placeholder="e.g. devbox.example.com"
+            value={sshHost}
+            onChange={(e) => saveSshHost(e.target.value)}
+            className="bg-zinc-950/50 border-zinc-800/60 text-xs font-mono h-9 placeholder:text-zinc-600"
+          />
+          <p className="text-[10px] text-zinc-600">
+            The SSH host where your worktrees live. Used by VS Code and Cursor &quot;Open Remote&quot; buttons on threads.
+          </p>
         </div>
       </Section>
     </div>
