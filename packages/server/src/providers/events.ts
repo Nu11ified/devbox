@@ -149,6 +149,11 @@ export interface TeamTaskUpdatedPayload {
   content: string;
 }
 
+export interface SessionResumedPayload {
+  sessionId: string;
+  resumedFrom: string | null;
+}
+
 // Discriminated Union
 export type ProviderRuntimeEvent =
   | { type: "session.started"; payload: SessionStartedPayload }
@@ -169,7 +174,8 @@ export type ProviderRuntimeEvent =
   | { type: "checkpoint.created"; payload: CheckpointCreatedPayload }
   | { type: "ask_user"; payload: AskUserPayload }
   | { type: "team.message.received"; payload: TeamMessageReceivedPayload }
-  | { type: "team.task.updated"; payload: TeamTaskUpdatedPayload };
+  | { type: "team.task.updated"; payload: TeamTaskUpdatedPayload }
+  | { type: "session.resumed"; payload: SessionResumedPayload };
 
 // Envelope wrapping each event with metadata
 export interface ProviderEventEnvelope {
