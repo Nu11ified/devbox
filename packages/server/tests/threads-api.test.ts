@@ -19,6 +19,7 @@ vi.mock("../src/db/prisma.js", () => ({
     thread: {
       findMany: vi.fn().mockResolvedValue([]),
       findUnique: vi.fn().mockResolvedValue(null),
+      findFirst: vi.fn().mockResolvedValue(null),
       create: vi.fn(),
       update: vi.fn(),
       delete: vi.fn().mockResolvedValue({}),
@@ -406,6 +407,62 @@ describe("Threads API", () => {
           where: { userId: "user-1" },
         })
       );
+    });
+  });
+
+  // ── PATCH /api/threads/:id/archive ───────────────────────────────────
+
+  describe("PATCH /api/threads/:id/archive", () => {
+    it("stops session and destroys devbox when archiving active thread", async () => {
+      vi.mocked(prisma.thread.findFirst).mockResolvedValueOnce({
+        id: "thread-1",
+        status: "active",
+        devboxId: "ctr-archive-1",
+        archivedAt: null,
+      } as any);
+      vi.mocked(prisma.thread.update).mockResolvedValueOnce({} as any);
+
+      const res = await request(app).patch("/api/threads/thread-1/archive");
+
+      expect(res.status).toBe(200);
+      expect(res.body.archived).toBe(true);
+      expect(mockPS.stopThread).toHaveBeenCalledTimes(1);
+      expect(mockDevboxInstance.destroy).toHaveBeenCalledWith("ctr-archive-1");
+    });
+
+    it("does not cleanup when unarchiving", async () => {
+      vi.mocked(prisma.thread.findFirst).mockResolvedValueOnce({
+        id: "thread-1",
+        status: "idle",
+        devboxId: "ctr-archive-2",
+        archivedAt: new Date(),
+      } as any);
+      vi.mocked(prisma.thread.update).mockResolvedValueOnce({} as any);
+
+      const res = await request(app).patch("/api/threads/thread-1/archive");
+
+      expect(res.status).toBe(200);
+      expect(res.body.archived).toBe(false);
+      expect(mockPS.stopThread).not.toHaveBeenCalled();
+      expect(mockDevboxInstance.destroy).not.toHaveBeenCalled();
+    });
+
+    it("archive succeeds even if cleanup fails", async () => {
+      mockDevboxInstance.destroy.mockRejectedValueOnce(new Error("container gone"));
+      (mockPS.stopThread as any).mockReturnValueOnce(Effect.fail(new Error("dead")));
+
+      vi.mocked(prisma.thread.findFirst).mockResolvedValueOnce({
+        id: "thread-1",
+        status: "active",
+        devboxId: "ctr-bad",
+        archivedAt: null,
+      } as any);
+      vi.mocked(prisma.thread.update).mockResolvedValueOnce({} as any);
+
+      const res = await request(app).patch("/api/threads/thread-1/archive");
+
+      expect(res.status).toBe(200);
+      expect(res.body.archived).toBe(true);
     });
   });
 
