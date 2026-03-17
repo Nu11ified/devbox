@@ -38,7 +38,7 @@ export interface TimelineItem {
 interface TimelineProps {
   items: TimelineItem[];
   onApprove: (requestId: string, decision: "allow" | "deny" | "allow_session") => void;
-  onRespondToAsk: (requestId: string, answer: string) => void;
+  onRespondToAsk?: (requestId: string, answer: string) => void;
 }
 
 export function Timeline({ items, onApprove, onRespondToAsk }: TimelineProps) {
@@ -143,7 +143,7 @@ export function Timeline({ items, onApprove, onRespondToAsk }: TimelineProps) {
                   options={item.options}
                   resolved={item.resolved}
                   response={item.decision}
-                  onRespond={onRespondToAsk}
+                  onRespond={onRespondToAsk ?? (() => {})}
                 />
               );
             case "error":
