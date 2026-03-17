@@ -585,18 +585,21 @@ export function setupProjectEventsWebSocket(
           distinct: ["threadId"],
         });
         if (askEvents.length > 0) {
-          // Batch: get all request.resolved events for these threads
-          const requestIds = askEvents.map((e) => (e.payload as any)?.requestId).filter(Boolean);
+          // Batch: get all request.resolved events for these threads and filter in JS
+          const requestIds = new Set(
+            askEvents.map((e) => (e.payload as any)?.requestId).filter(Boolean)
+          );
           const resolvedEvents = await prisma.threadEvent.findMany({
             where: {
               threadId: { in: threadIds },
               type: "request.resolved",
-              payload: { path: ["requestId"], in: requestIds },
             },
             select: { payload: true },
           });
           const resolvedRequestIds = new Set(
-            resolvedEvents.map((e) => (e.payload as any)?.requestId).filter(Boolean)
+            resolvedEvents
+              .map((e) => (e.payload as any)?.requestId)
+              .filter((id: string) => id && requestIds.has(id))
           );
 
           const titleMap = new Map(threads.map((t) => [t.id, t.title]));

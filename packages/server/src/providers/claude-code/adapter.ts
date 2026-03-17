@@ -564,9 +564,10 @@ export class ClaudeCodeAdapter implements ProviderAdapterShape {
 
           // For AskUserQuestion, pass the user's answer back via updatedInput
           // The reason field carries the user's response text
+          const reason = "reason" in decision ? decision.reason : undefined;
           return {
             behavior: "allow" as const,
-            updatedInput: { ...input, result: decision.reason ?? "" },
+            updatedInput: { ...input, result: reason ?? "" },
           };
         }
 
