@@ -160,7 +160,7 @@ function ToastItem({
         )}
       </div>
       <button
-        onClick={onDismiss}
+        onClick={(e) => { e.stopPropagation(); onDismiss(); }}
         className="text-zinc-600 hover:text-zinc-400 transition-colors"
       >
         <X className="h-3.5 w-3.5" />
