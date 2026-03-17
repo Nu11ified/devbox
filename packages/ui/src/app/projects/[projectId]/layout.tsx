@@ -6,6 +6,7 @@ import { ProjectSidebar } from "@/components/project-sidebar";
 import { useCommandPalette } from "@/hooks/use-command-palette";
 import { api, type ProjectDetail } from "@/lib/api";
 import { MessageSquare } from "lucide-react";
+import { PendingInputsProvider } from "@/hooks/use-project-events";
 
 function ProjectCommands({ projectId }: { projectId: string }) {
   const router = useRouter();
@@ -76,14 +77,16 @@ export default function ProjectLayout({
   }, [toggle]);
 
   return (
-    <div className="flex h-full overflow-hidden">
-      <ProjectCommands projectId={projectId} />
-      <ProjectSidebar
-        projectId={projectId}
-        collapsed={collapsed}
-        onToggle={toggle}
-      />
-      <div className="flex-1 min-w-0 overflow-hidden">{children}</div>
-    </div>
+    <PendingInputsProvider projectId={projectId}>
+      <div className="flex h-full overflow-hidden">
+        <ProjectCommands projectId={projectId} />
+        <ProjectSidebar
+          projectId={projectId}
+          collapsed={collapsed}
+          onToggle={toggle}
+        />
+        <div className="flex-1 min-w-0 overflow-hidden">{children}</div>
+      </div>
+    </PendingInputsProvider>
   );
 }
