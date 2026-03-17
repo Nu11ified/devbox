@@ -522,6 +522,22 @@ export class ClaudeCodeAdapter implements ProviderAdapterShape {
             }, turnId)
           );
 
+          // Emit transient thread.status for project-level notifications
+          // Look up thread name for the toast notification
+          const threadRecord = await prisma.thread.findUnique({
+            where: { id: threadId as string },
+            select: { title: true },
+          });
+          await self.enqueue(
+            self.makeEnvelope("thread.status", threadId, {
+              status: "needs_input",
+              requestId,
+              question: questions.length > 0 ? questions[0].question : "Agent needs input",
+              options: questions.length > 0 ? questions[0].options : [],
+              threadName: threadRecord?.title ?? undefined,
+            } as any, turnId)
+          );
+
           const deferred = Effect.runSync(Deferred.make<ApprovalDecision, never>());
           state.pendingRequests.set(requestId, { requestId, deferred });
 
@@ -535,14 +551,22 @@ export class ClaudeCodeAdapter implements ProviderAdapterShape {
             }, turnId)
           );
 
+          // Emit thread.status running to clear notifications
+          await self.enqueue(
+            self.makeEnvelope("thread.status", threadId, {
+              status: "running",
+            } as any, turnId)
+          );
+
           if (decision.type === "deny") {
             return { behavior: "deny" as const, message: decision.reason ?? "User declined" };
           }
 
-          // For AskUserQuestion, the answer is passed in the reason field
+          // For AskUserQuestion, pass the user's answer back via updatedInput
+          // The reason field carries the user's response text
           return {
             behavior: "allow" as const,
-            updatedInput: input,
+            updatedInput: { ...input, result: decision.reason ?? "" },
           };
         }
 
