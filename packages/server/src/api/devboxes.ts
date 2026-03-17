@@ -1,18 +1,19 @@
 import { Router, type Router as RouterType } from "express";
 import { DevboxManager } from "../devbox/manager.js";
+import { requireUser } from "../auth/require-user.js";
 
 const manager = new DevboxManager();
 
 export const devboxesRouter: RouterType = Router();
 
 // GET /api/devboxes — list active devboxes
-devboxesRouter.get("/", async (_req, res) => {
+devboxesRouter.get("/", requireUser(), async (_req, res) => {
   const containers = await manager.list();
   res.json(containers);
 });
 
 // POST /api/devboxes — create a devbox
-devboxesRouter.post("/", async (req, res) => {
+devboxesRouter.post("/", requireUser(), async (req, res) => {
   const { image, name, env, cpus, memoryMB, networkMode } = req.body;
 
   if (!image) {
@@ -32,7 +33,7 @@ devboxesRouter.post("/", async (req, res) => {
 });
 
 // DELETE /api/devboxes/:id — destroy a devbox
-devboxesRouter.delete("/:id", async (req, res) => {
+devboxesRouter.delete("/:id", requireUser(), async (req, res) => {
   try {
     await manager.destroy(req.params.id);
     res.status(204).send();
@@ -47,7 +48,7 @@ devboxesRouter.delete("/:id", async (req, res) => {
 });
 
 // GET /api/devboxes/:id/status — get devbox status
-devboxesRouter.get("/:id/status", async (req, res) => {
+devboxesRouter.get("/:id/status", requireUser(), async (req, res) => {
   try {
     const containers = await manager.list();
     const found = containers.find((c) => c.containerId === req.params.id);

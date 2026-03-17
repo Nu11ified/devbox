@@ -1,6 +1,7 @@
 import { Router, type Router as RouterType } from "express";
 import prisma from "../db/prisma.js";
 import { Prisma } from "@prisma/client";
+import { requireUser, getUserId } from "../auth/require-user.js";
 
 export const archiveRouter: RouterType = Router();
 
@@ -25,7 +26,8 @@ interface ArchiveSearchResult {
 }
 
 // GET /api/archive — search archived issues (and optionally thread content)
-archiveRouter.get("/", async (req, res) => {
+archiveRouter.get("/", requireUser(), async (req, res) => {
+  const userId = getUserId(req);
   const query = (req.query.q as string) || "";
   const projectId = req.query.projectId as string | undefined;
   const page = Math.max(1, parseInt(String(req.query.page || "1"), 10));
@@ -35,10 +37,10 @@ archiveRouter.get("/", async (req, res) => {
   try {
     if (!query.trim()) {
       // No search query — return all archived issues AND archived threads, newest first
-      const issueWhere: Record<string, unknown> = { status: "archived" };
+      const issueWhere: Record<string, unknown> = { status: "archived", createdByUserId: userId };
       if (projectId) issueWhere.projectId = projectId;
 
-      const threadWhere: Record<string, unknown> = { archivedAt: { not: null } };
+      const threadWhere: Record<string, unknown> = { archivedAt: { not: null }, userId };
       if (projectId) threadWhere.projectId = projectId;
 
       const [issues, threads, issueCount, threadCount] = await Promise.all([
@@ -161,6 +163,7 @@ archiveRouter.get("/", async (req, res) => {
       LEFT JOIN threads th ON th.issue_id = i.id
       LEFT JOIN thread_turns t ON t.thread_id = th.id
       WHERE i.status = 'archived'
+        AND i.created_by_user_id = ${userId}::text
         AND (
           to_tsvector('english', COALESCE(i.title, '') || ' ' || COALESCE(i.body, ''))
             @@ plainto_tsquery('english', ${query})
@@ -203,6 +206,7 @@ archiveRouter.get("/", async (req, res) => {
       LEFT JOIN projects p ON p.id = th.project_id
       LEFT JOIN thread_turns t ON t.thread_id = th.id
       WHERE th.archived_at IS NOT NULL
+        AND th.user_id = ${userId}::text
         AND (
           to_tsvector('english', COALESCE(th.title, ''))
             @@ plainto_tsquery('english', ${query})

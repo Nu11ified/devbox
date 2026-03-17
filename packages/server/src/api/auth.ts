@@ -1,5 +1,6 @@
 import { Router } from "express";
 import type { AuthProxy } from "../auth/proxy.js";
+import { requireUser, getUserId } from "../auth/require-user.js";
 
 const VALID_PROVIDERS = new Set(["claude", "codex"]);
 
@@ -46,13 +47,12 @@ export function authRouter(proxy: AuthProxy): Router {
       authEnabled: !!(u && p),
       usernameLength: u?.length ?? 0,
       passwordLength: p?.length ?? 0,
-      usernameFirst2: u?.slice(0, 2) ?? "",
       serverVersion: "2025-03-05-v2",
     });
   });
 
   // POST /api/auth/tokens — store encrypted token
-  router.post("/tokens", async (req, res) => {
+  router.post("/tokens", requireUser(), async (req, res) => {
     const { provider, token } = req.body;
 
     if (!provider || !token) {
@@ -70,13 +70,13 @@ export function authRouter(proxy: AuthProxy): Router {
   });
 
   // GET /api/auth/tokens — list stored providers (NOT the tokens)
-  router.get("/tokens", (_req, res) => {
+  router.get("/tokens", requireUser(), (_req, res) => {
     const providers = proxy.listProviders();
     res.json({ providers });
   });
 
   // DELETE /api/auth/tokens/:provider — remove token
-  router.delete("/tokens/:provider", async (req, res) => {
+  router.delete("/tokens/:provider", requireUser(), async (req, res) => {
     const { provider } = req.params;
     const removed = await proxy.removeToken(provider);
 
@@ -89,7 +89,7 @@ export function authRouter(proxy: AuthProxy): Router {
   });
 
   // GET /api/auth/status — check token validity for all providers
-  router.get("/status", async (_req, res) => {
+  router.get("/status", requireUser(), async (_req, res) => {
     const result: Record<string, { connected: boolean }> = {};
 
     for (const name of VALID_PROVIDERS) {

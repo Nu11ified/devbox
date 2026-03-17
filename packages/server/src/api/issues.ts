@@ -7,8 +7,12 @@ import {
   removeIssue,
 } from "../db/queries.js";
 import prisma from "../db/prisma.js";
+import { requireUser, getUserId } from "../auth/require-user.js";
 
 export const issuesRouter: RouterType = Router();
+
+// Require authentication for all issue routes
+issuesRouter.use(requireUser());
 
 // POST /api/issues — create a new issue
 issuesRouter.post("/", async (req, res) => {
@@ -38,11 +42,9 @@ issuesRouter.post("/", async (req, res) => {
     return;
   }
 
-  // Auto-set createdByUserId from authenticated session
-  const user = (req as any).user;
-  if (user?.id && !req.body.createdByUserId) {
-    req.body.createdByUserId = user.id;
-  }
+  // Always set createdByUserId from authenticated session
+  const userId = getUserId(req);
+  req.body.createdByUserId = userId;
 
   try {
     const row = await insertIssue(req.body);
@@ -59,19 +61,22 @@ issuesRouter.post("/", async (req, res) => {
 
 // GET /api/issues — list with optional filters
 issuesRouter.get("/", async (req, res) => {
+  const userId = getUserId(req);
   const { status, repo, priority } = req.query;
   const rows = await findAllIssues({
     status: status as string | undefined,
     repo: repo as string | undefined,
     priority: priority !== undefined ? parseInt(String(priority), 10) : undefined,
+    createdByUserId: userId,
   });
   res.json(rows);
 });
 
 // GET /api/issues/:id — issue detail
 issuesRouter.get("/:id", async (req, res) => {
+  const userId = getUserId(req);
   const row = await findIssueById(req.params.id);
-  if (!row) {
+  if (!row || row.createdByUserId !== userId) {
     res.status(404).json({ error: "Issue not found" });
     return;
   }
@@ -80,6 +85,14 @@ issuesRouter.get("/:id", async (req, res) => {
 
 // PUT /api/issues/:id — update issue
 issuesRouter.put("/:id", async (req, res) => {
+  const userId = getUserId(req);
+  const existing = await prisma.issue.findFirst({
+    where: { id: req.params.id, createdByUserId: userId },
+  });
+  if (!existing) {
+    res.status(404).json({ error: "Issue not found" });
+    return;
+  }
   const row = await updateIssue(req.params.id, req.body);
   if (!row) {
     res.status(404).json({ error: "Issue not found" });
@@ -90,6 +103,14 @@ issuesRouter.put("/:id", async (req, res) => {
 
 // DELETE /api/issues/:id — remove issue
 issuesRouter.delete("/:id", async (req, res) => {
+  const userId = getUserId(req);
+  const existing = await prisma.issue.findFirst({
+    where: { id: req.params.id, createdByUserId: userId },
+  });
+  if (!existing) {
+    res.status(404).json({ error: "Issue not found" });
+    return;
+  }
   const deleted = await removeIssue(req.params.id);
   if (!deleted) {
     res.status(404).json({ error: "Issue not found" });
@@ -101,8 +122,9 @@ issuesRouter.delete("/:id", async (req, res) => {
 // PATCH /api/issues/:id/archive - toggle archive
 issuesRouter.patch("/:id/archive", async (req, res) => {
   try {
+    const userId = getUserId(req);
     const issue = await prisma.issue.findFirst({
-      where: { id: req.params.id },
+      where: { id: req.params.id, createdByUserId: userId },
     });
     if (!issue) {
       res.status(404).json({ error: "Issue not found" });
@@ -125,8 +147,9 @@ issuesRouter.patch("/:id/archive", async (req, res) => {
 
 // POST /api/issues/:id/dispatch — queue an issue for the autonomous orchestrator
 issuesRouter.post("/:id/dispatch", async (req, res) => {
+  const userId = getUserId(req);
   const issue = await findIssueById(req.params.id);
-  if (!issue) {
+  if (!issue || issue.createdByUserId !== userId) {
     res.status(404).json({ error: "Issue not found" });
     return;
   }

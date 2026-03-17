@@ -11,6 +11,7 @@ import type { AuthProxy } from "../auth/proxy.js";
 import { Octokit } from "@octokit/rest";
 import { createWorktree, removeWorktree } from "../git/worktree.js";
 import { commitAllChanges, pushBranch } from "../git/pr.js";
+import { requireUser, getUserId } from "../auth/require-user.js";
 
 const THREADS_DIR = process.env.THREADS_DIR || "/data/patchwork/threads";
 const devboxManager = new DevboxManager();
@@ -20,12 +21,9 @@ export function threadsRouter(providerService: ProviderService, authProxy?: Auth
 
   // List threads for current user
   // Supports ?projectId=X&archived=true to fetch archived threads for a project
-  router.get("/", async (req, res) => {
+  router.get("/", requireUser(), async (req, res) => {
     try {
-      const userId = (req as any).user?.id;
-      if (!userId) {
-        return res.json([]);
-      }
+      const userId = getUserId(req);
       const where: any = { userId };
       if (req.query.projectId) where.projectId = req.query.projectId;
       if (req.query.archived === "true") {
@@ -48,10 +46,11 @@ export function threadsRouter(providerService: ProviderService, authProxy?: Auth
   });
 
   // Get single thread with turns and recent events
-  router.get("/:id", async (req, res) => {
+  router.get("/:id", requireUser(), async (req, res) => {
     try {
-      const thread = await prisma.thread.findUnique({
-        where: { id: req.params.id },
+      const userId = getUserId(req);
+      const thread = await prisma.thread.findFirst({
+        where: { id: req.params.id, userId },
         include: {
           turns: { orderBy: { startedAt: "asc" } },
           events: { orderBy: { sequence: "asc" }, take: 500 },
@@ -66,9 +65,9 @@ export function threadsRouter(providerService: ProviderService, authProxy?: Auth
   });
 
   // Create thread and start session
-  router.post("/", async (req, res) => {
+  router.post("/", requireUser(), async (req, res) => {
     try {
-      const userId = (req as any).user?.id;
+      const userId = getUserId(req);
       const { title, provider, model, runtimeMode, workspacePath, useSubscription, issueId, repo, branch, projectId, worktreeBranch } = req.body;
 
       if (!title || !provider) {
@@ -246,15 +245,32 @@ export function threadsRouter(providerService: ProviderService, authProxy?: Auth
     }
   });
 
+  /** Verify the authenticated user owns the thread. Returns thread or sends 404. */
+  async function verifyOwnership(req: any, res: any): Promise<{ id: string } | null> {
+    const userId = getUserId(req);
+    const thread = await prisma.thread.findFirst({
+      where: { id: req.params.id, userId },
+      select: { id: true },
+    });
+    if (!thread) {
+      res.status(404).json({ error: "Thread not found" });
+      return null;
+    }
+    return thread;
+  }
+
   // Send turn
-  router.post("/:id/turns", async (req, res) => {
+  router.post("/:id/turns", requireUser(), async (req, res) => {
     try {
+      const thread = await verifyOwnership(req, res);
+      if (!thread) return;
+
       const { text, model, effort, attachments, forkSession, continueSession, outputFormat } = req.body;
       if (!text) return res.status(400).json({ error: "text is required" });
 
       const result = await Effect.runPromise(
         providerService.sendTurn({
-          threadId: ThreadId(req.params.id),
+          threadId: ThreadId(thread.id),
           text,
           model,
           effort,
@@ -271,8 +287,11 @@ export function threadsRouter(providerService: ProviderService, authProxy?: Auth
   });
 
   // Respond to approval request
-  router.post("/:id/approve", async (req, res) => {
+  router.post("/:id/approve", requireUser(), async (req, res) => {
     try {
+      const thread = await verifyOwnership(req, res);
+      if (!thread) return;
+
       const { requestId, decision } = req.body;
       if (!requestId || !decision) {
         return res.status(400).json({ error: "requestId and decision required" });
@@ -280,7 +299,7 @@ export function threadsRouter(providerService: ProviderService, authProxy?: Auth
 
       await Effect.runPromise(
         providerService.respondToRequest(
-          ThreadId(req.params.id),
+          ThreadId(thread.id),
           requestId,
           decision
         )
@@ -292,10 +311,13 @@ export function threadsRouter(providerService: ProviderService, authProxy?: Auth
   });
 
   // Interrupt current turn
-  router.post("/:id/interrupt", async (req, res) => {
+  router.post("/:id/interrupt", requireUser(), async (req, res) => {
     try {
+      const thread = await verifyOwnership(req, res);
+      if (!thread) return;
+
       await Effect.runPromise(
-        providerService.interruptTurn(ThreadId(req.params.id))
+        providerService.interruptTurn(ThreadId(thread.id))
       );
       res.json({ ok: true });
     } catch (err: any) {
@@ -304,10 +326,13 @@ export function threadsRouter(providerService: ProviderService, authProxy?: Auth
   });
 
   // Stop thread session
-  router.post("/:id/stop", async (req, res) => {
+  router.post("/:id/stop", requireUser(), async (req, res) => {
     try {
+      const thread = await verifyOwnership(req, res);
+      if (!thread) return;
+
       await Effect.runPromise(
-        providerService.stopThread(ThreadId(req.params.id))
+        providerService.stopThread(ThreadId(thread.id))
       );
       res.json({ ok: true });
     } catch (err: any) {
@@ -316,11 +341,11 @@ export function threadsRouter(providerService: ProviderService, authProxy?: Auth
   });
 
   // Create PR from thread changes
-  router.post("/:id/pr", async (req, res) => {
+  router.post("/:id/pr", requireUser(), async (req, res) => {
     try {
-      const userId = (req as any).user?.id;
-      const thread = await prisma.thread.findUnique({
-        where: { id: req.params.id },
+      const userId = getUserId(req);
+      const thread = await prisma.thread.findFirst({
+        where: { id: req.params.id, userId },
         include: { project: true },
       });
 
@@ -403,11 +428,11 @@ export function threadsRouter(providerService: ProviderService, authProxy?: Auth
   });
 
   // Archive or unarchive a thread
-  router.patch("/:id/archive", async (req, res) => {
+  router.patch("/:id/archive", requireUser(), async (req, res) => {
     try {
-      const userId = (req as any).user?.id;
+      const userId = getUserId(req);
       const thread = await prisma.thread.findFirst({
-        where: { id: req.params.id, ...(userId ? { userId } : {}) },
+        where: { id: req.params.id, userId },
       });
       if (!thread) return res.status(404).json({ error: "Thread not found" });
 
@@ -442,14 +467,14 @@ export function threadsRouter(providerService: ProviderService, authProxy?: Auth
   });
 
   // Delete thread
-  router.delete("/:id", async (req, res) => {
+  router.delete("/:id", requireUser(), async (req, res) => {
     try {
-      const userId = (req as any).user?.id;
-      const where: any = { id: req.params.id };
-      if (userId) where.userId = userId;
+      const userId = getUserId(req);
 
-      // Look up thread for cleanup before deletion
-      const thread = await prisma.thread.findUnique({ where: { id: req.params.id } });
+      // Look up thread for cleanup before deletion — scoped to user
+      const thread = await prisma.thread.findFirst({
+        where: { id: req.params.id, userId },
+      });
       if (thread) {
         try {
           // Stop session if still active
@@ -477,7 +502,9 @@ export function threadsRouter(providerService: ProviderService, authProxy?: Auth
         }
       }
 
-      await prisma.thread.delete({ where });
+      if (!thread) return res.status(404).json({ error: "Thread not found" });
+
+      await prisma.thread.delete({ where: { id: thread.id } });
       res.json({ ok: true });
     } catch (err: any) {
       res.status(500).json({ error: err.message });

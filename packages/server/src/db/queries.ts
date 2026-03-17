@@ -169,6 +169,7 @@ export async function findAllIssues(filters?: {
   status?: string;
   repo?: string;
   priority?: number;
+  createdByUserId?: string;
 }) {
   const where: Record<string, unknown> = {};
   if (filters?.status) {
@@ -179,6 +180,7 @@ export async function findAllIssues(filters?: {
   }
   if (filters?.repo) where.repo = filters.repo;
   if (filters?.priority !== undefined) where.priority = filters.priority;
+  if (filters?.createdByUserId) where.createdByUserId = filters.createdByUserId;
 
   return prisma.issue.findMany({
     where,
