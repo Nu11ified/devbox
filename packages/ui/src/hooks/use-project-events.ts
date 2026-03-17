@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useEffect, useRef, useState, useCallback, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { api } from "@/lib/api";
 import { useToast } from "@/components/ui/toast";
@@ -35,6 +35,7 @@ function getProjectWsUrl(projectId: string, ticket?: string): string {
     return `${wsUrl}/ws/projects/${projectId}/events${qs ? `?${qs}` : ""}`;
   }
   const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
+  // Same-origin: route through Next.js rewrite (/api/ws/* → server /ws/*)
   return `${proto}//${window.location.host}/api/ws/projects/${projectId}/events${qs ? `?${qs}` : ""}`;
 }
 
