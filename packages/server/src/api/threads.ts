@@ -49,8 +49,9 @@ export function threadsRouter(providerService: ProviderService, authProxy?: Auth
   router.get("/:id", requireUser(), async (req, res) => {
     try {
       const userId = getUserId(req);
+      const threadId = req.params.id as string;
       const thread = await prisma.thread.findFirst({
-        where: { id: req.params.id, userId },
+        where: { id: threadId, userId },
         include: {
           turns: { orderBy: { startedAt: "asc" } },
           events: { orderBy: { sequence: "asc" }, take: 500 },
@@ -344,8 +345,9 @@ export function threadsRouter(providerService: ProviderService, authProxy?: Auth
   router.post("/:id/pr", requireUser(), async (req, res) => {
     try {
       const userId = getUserId(req);
+      const threadId = req.params.id as string;
       const thread = await prisma.thread.findFirst({
-        where: { id: req.params.id, userId },
+        where: { id: threadId, userId },
         include: { project: true },
       });
 
@@ -431,8 +433,9 @@ export function threadsRouter(providerService: ProviderService, authProxy?: Auth
   router.patch("/:id/archive", requireUser(), async (req, res) => {
     try {
       const userId = getUserId(req);
+      const threadId = req.params.id as string;
       const thread = await prisma.thread.findFirst({
-        where: { id: req.params.id, userId },
+        where: { id: threadId, userId },
       });
       if (!thread) return res.status(404).json({ error: "Thread not found" });
 
@@ -472,8 +475,9 @@ export function threadsRouter(providerService: ProviderService, authProxy?: Auth
       const userId = getUserId(req);
 
       // Look up thread for cleanup before deletion — scoped to user
+      const threadId = req.params.id as string;
       const thread = await prisma.thread.findFirst({
-        where: { id: req.params.id, userId },
+        where: { id: threadId, userId },
       });
       if (thread) {
         try {

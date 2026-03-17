@@ -77,7 +77,7 @@ export function authRouter(proxy: AuthProxy): Router {
 
   // DELETE /api/auth/tokens/:provider — remove token
   router.delete("/tokens/:provider", requireUser(), async (req, res) => {
-    const { provider } = req.params;
+    const provider = req.params.provider as string;
     const removed = await proxy.removeToken(provider);
 
     if (!removed) {

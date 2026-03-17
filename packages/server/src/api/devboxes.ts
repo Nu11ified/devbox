@@ -35,7 +35,7 @@ devboxesRouter.post("/", requireUser(), async (req, res) => {
 // DELETE /api/devboxes/:id — destroy a devbox
 devboxesRouter.delete("/:id", requireUser(), async (req, res) => {
   try {
-    await manager.destroy(req.params.id);
+    await manager.destroy(req.params.id as string);
     res.status(204).send();
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
