@@ -70,6 +70,14 @@ export default function ProjectThreadDetailPage() {
         }
       }
 
+      // Build set of resolved requestIds for determining ask_user state
+      const resolvedRequests = new Set<string>();
+      for (const evt of data.events ?? []) {
+        if (evt.type === "request.resolved") {
+          resolvedRequests.add(evt.payload?.requestId);
+        }
+      }
+
       for (const turn of data.turns ?? []) {
         // Insert tool use events that belong to this turn BEFORE the turn text
         const turnEvents = eventsByTurn.get(turn.turnId ?? turn.id) ?? [];
@@ -90,6 +98,8 @@ export default function ProjectThreadDetailPage() {
             });
           } else if (evt.type === "request.opened") {
             const p = evt.payload;
+            // Suppress AskUserQuestion — rendered via ask_user event
+            if (p.toolName === "AskUserQuestion") continue;
             initial.push({
               id: `req-${p.requestId}`,
               kind: "approval_request",
@@ -99,6 +109,16 @@ export default function ProjectThreadDetailPage() {
               description: p.description,
               input: p.input,
               resolved: true, // Historical requests are resolved
+            });
+          } else if (evt.type === "ask_user") {
+            const p = evt.payload;
+            initial.push({
+              id: `ask-${p.requestId}`,
+              kind: "ask_user" as const,
+              question: p.question,
+              options: p.options,
+              requestId: p.requestId,
+              resolved: resolvedRequests.has(p.requestId),
             });
           }
         }
@@ -228,6 +248,8 @@ export default function ProjectThreadDetailPage() {
         }
 
         case "request.opened": {
+          // Suppress AskUserQuestion — already rendered via ask_user event as AskUserCard
+          if (e.payload.toolName === "AskUserQuestion") break;
           setItems((prev) => [
             ...prev,
             {
@@ -397,6 +419,20 @@ export default function ProjectThreadDetailPage() {
       sendTurn(text, model, effort);
     },
     [sendTurn]
+  );
+
+  const handleRespondToAsk = useCallback(
+    (requestId: string, answer: string) => {
+      send({ type: "thread.approval", requestId, decision: "allow", reason: answer });
+      setItems((prev) =>
+        prev.map((i) =>
+          i.requestId === requestId
+            ? { ...i, resolved: true, decision: answer }
+            : i
+        )
+      );
+    },
+    [send]
   );
 
   async function handleForceStop() {
@@ -643,7 +679,7 @@ export default function ProjectThreadDetailPage() {
       {/* Main content */}
       <div className="flex flex-1 min-h-0">
         <div className="flex flex-col flex-1 min-w-0">
-          <Timeline items={items} onApprove={approve} />
+          <Timeline items={items} onApprove={approve} onRespondToAsk={handleRespondToAsk} />
 
           <Composer
             onSend={handleSend}
