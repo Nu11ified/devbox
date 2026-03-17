@@ -5,7 +5,7 @@ import { MessageBubble } from "./message-bubble";
 import { ApprovalCard } from "./approval-card";
 import { AskUserCard } from "./ask-user-card";
 import { WorkItem } from "./work-item";
-import { Bot, CheckCircle2, Circle, Loader2 } from "lucide-react";
+import { Bot, CheckCircle2, Circle, Loader2, Layers, Undo2 } from "lucide-react";
 
 export interface TodoItem {
   id: string;
@@ -15,7 +15,7 @@ export interface TodoItem {
 
 export interface TimelineItem {
   id: string;
-  kind: "user_message" | "assistant_text" | "work_item" | "approval_request" | "error" | "todo_progress" | "ask_user";
+  kind: "user_message" | "assistant_text" | "work_item" | "approval_request" | "error" | "todo_progress" | "ask_user" | "context_compacted";
   content?: string;
   streaming?: boolean;
   toolName?: string;
@@ -33,15 +33,25 @@ export interface TimelineItem {
   /** AskUserQuestion */
   question?: string;
   options?: Array<{ label: string; value: string }>;
+  /** Turn this item belongs to (for rewind) */
+  turnId?: string;
+}
+
+export interface CheckpointEntry {
+  id: string;
+  turnId: string;
 }
 
 interface TimelineProps {
   items: TimelineItem[];
   onApprove: (requestId: string, decision: "allow" | "deny" | "allow_session") => void;
   onRespondToAsk?: (requestId: string, answer: string) => void;
+  onRewind?: (checkpointId: string) => void;
+  checkpoints?: CheckpointEntry[];
+  running?: boolean;
 }
 
-export function Timeline({ items, onApprove, onRespondToAsk }: TimelineProps) {
+export function Timeline({ items, onApprove, onRespondToAsk, onRewind, checkpoints, running }: TimelineProps) {
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -71,8 +81,33 @@ export function Timeline({ items, onApprove, onRespondToAsk }: TimelineProps) {
       <div className="max-w-3xl mx-auto px-4 py-6 space-y-4">
         {items.map((item) => {
           switch (item.kind) {
-            case "user_message":
-              return <MessageBubble key={item.id} role="user" content={item.content ?? ""} />;
+            case "user_message": {
+              // Find the checkpoint to rewind to (the one from the turn BEFORE this one).
+              // Checkpoints are ordered — find the index of this turn's checkpoint,
+              // then use the checkpoint at index - 1.
+              const cpIdx = checkpoints?.findIndex((cp) => cp.turnId === item.turnId) ?? -1;
+              const rewindCp = cpIdx > 0 ? checkpoints![cpIdx - 1] : undefined;
+              const canRewind = !running && onRewind && rewindCp;
+
+              return (
+                <div key={item.id} className="group relative">
+                  <MessageBubble role="user" content={item.content ?? ""} />
+                  {canRewind && (
+                    <button
+                      onClick={() => {
+                        if (confirm("Rewind to before this message? File changes will be reverted.")) {
+                          onRewind(rewindCp.id);
+                        }
+                      }}
+                      className="absolute -left-7 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded-md hover:bg-orange-500/10"
+                      title="Rewind to before this turn"
+                    >
+                      <Undo2 className="h-3 w-3 text-orange-500/60" />
+                    </button>
+                  )}
+                </div>
+              );
+            }
             case "assistant_text":
               return <MessageBubble key={item.id} role="assistant" content={item.content ?? ""} streaming={item.streaming} />;
             case "work_item":
@@ -145,6 +180,17 @@ export function Timeline({ items, onApprove, onRespondToAsk }: TimelineProps) {
                   response={item.decision}
                   onRespond={onRespondToAsk ?? (() => {})}
                 />
+              );
+            case "context_compacted":
+              return (
+                <div key={item.id} className="flex items-center gap-3 max-w-3xl mx-auto py-1">
+                  <div className="flex-1 border-t border-dashed border-blue-500/20" />
+                  <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-blue-500/5 border border-blue-500/15">
+                    <Layers className="h-3 w-3 text-blue-400/60" />
+                    <span className="text-[10px] font-mono text-blue-400/60">context compacted</span>
+                  </div>
+                  <div className="flex-1 border-t border-dashed border-blue-500/20" />
+                </div>
               );
             case "error":
               return (

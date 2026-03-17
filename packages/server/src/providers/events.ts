@@ -162,6 +162,11 @@ export interface ThreadStatusPayload {
   threadName?: string;
 }
 
+export interface ContextCompactedPayload {
+  turnId?: TurnId;
+  message: string;
+}
+
 // Discriminated Union
 export type ProviderRuntimeEvent =
   | { type: "session.started"; payload: SessionStartedPayload }
@@ -184,7 +189,8 @@ export type ProviderRuntimeEvent =
   | { type: "team.message.received"; payload: TeamMessageReceivedPayload }
   | { type: "team.task.updated"; payload: TeamTaskUpdatedPayload }
   | { type: "session.resumed"; payload: SessionResumedPayload }
-  | { type: "thread.status"; payload: ThreadStatusPayload };
+  | { type: "thread.status"; payload: ThreadStatusPayload }
+  | { type: "context.compacted"; payload: ContextCompactedPayload };
 
 // Envelope wrapping each event with metadata
 export interface ProviderEventEnvelope {

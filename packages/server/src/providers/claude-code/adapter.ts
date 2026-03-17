@@ -612,35 +612,73 @@ export class ClaudeCodeAdapter implements ProviderAdapterShape {
     const q = query({ prompt: text, options: opts as any });
     state.activeQuery = q;
 
-    // Track whether we're receiving stream events (for fallback logic)
-    let hasStreamEvents = false;
+    // Track whether stream events actually deliver text deltas (not just lifecycle events).
+    // Only set when we get a content_block_delta with text_delta — prevents falsely
+    // suppressing the partial-message fallback path.
+    let hasStreamTextDeltas = false;
+    // Track accumulated text length from partial assistant messages for delta computation.
+    // Partial messages contain the full text so far; we compute the new delta by slicing.
+    let partialTextLen = 0;
     // Track active tool items for completion (id → toolName)
     const activeItems = new Map<string, string>();
 
     try {
       for await (const message of q) {
         if (message.type === "stream_event") {
-          hasStreamEvents = true;
-        }
-
-        // When new text content starts after tool execution, complete pending items
-        if (message.type === "stream_event") {
           const streamEvent = (message as any).event;
+
+          // Only flag stream text when we actually receive text content
+          if (
+            streamEvent?.type === "content_block_delta" &&
+            streamEvent.delta?.type === "text_delta" &&
+            streamEvent.delta.text
+          ) {
+            hasStreamTextDeltas = true;
+          }
+
+          // Reset partial text tracking when a new text content block starts
           if (
             streamEvent?.type === "content_block_start" &&
-            streamEvent.content_block?.type === "text" &&
-            activeItems.size > 0
+            streamEvent.content_block?.type === "text"
           ) {
-            for (const [itemId, toolName] of activeItems) {
-              await this.enqueue(
-                this.makeEnvelope("item.completed", threadId, { itemId, turnId, toolName }, turnId)
-              );
+            partialTextLen = 0;
+
+            // Complete pending tool items when text resumes after tool execution
+            if (activeItems.size > 0) {
+              for (const [itemId, toolName] of activeItems) {
+                await this.enqueue(
+                  this.makeEnvelope("item.completed", threadId, { itemId, turnId, toolName }, turnId)
+                );
+              }
+              activeItems.clear();
             }
-            activeItems.clear();
           }
         }
 
-        const envelopes = this.mapSDKMessage(message, threadId, turnId, hasStreamEvents);
+        const envelopes = this.mapSDKMessage(message, threadId, turnId, hasStreamTextDeltas);
+
+        // Fallback: extract text from partial assistant messages when stream events
+        // don't include text deltas. Compute true deltas from accumulated text.
+        if (!hasStreamTextDeltas && message.type === "assistant") {
+          const betaMessage = (message as any).message;
+          if (betaMessage?.content) {
+            let fullText = "";
+            for (const block of betaMessage.content) {
+              if (block.type === "text" && block.text) {
+                fullText += block.text;
+              }
+            }
+            if (fullText.length > partialTextLen) {
+              const delta = fullText.slice(partialTextLen);
+              partialTextLen = fullText.length;
+              envelopes.push(
+                this.makeEnvelope("content.delta", threadId, {
+                  turnId, kind: "text", delta,
+                }, turnId)
+              );
+            }
+          }
+        }
 
         // Track items for completion
         for (const env of envelopes) {
@@ -844,15 +882,15 @@ export class ClaudeCodeAdapter implements ProviderAdapterShape {
 
   /**
    * Map SDK messages to provider event envelopes.
-   * When hasStreamEvents is true, text/thinking blocks in assistant messages
-   * are skipped (already streamed via stream_event). Tool use blocks are
-   * always processed from assistant messages since they contain full input.
+   * Text from assistant messages is handled in runAgentQuery (delta computation
+   * needed for partial messages). This method handles stream_event text/thinking
+   * deltas and tool_use blocks from assistant messages.
    */
   private mapSDKMessage(
     message: any,
     threadId: ThreadId,
     turnId: TurnId,
-    hasStreamEvents: boolean = false,
+    hasStreamTextDeltas: boolean = false,
   ): ProviderEventEnvelope[] {
     const envelopes: ProviderEventEnvelope[] = [];
 
@@ -878,14 +916,9 @@ export class ClaudeCodeAdapter implements ProviderAdapterShape {
       const betaMessage = message.message;
       if (betaMessage?.content) {
         for (const block of betaMessage.content) {
-          if (block.type === "text" && !hasStreamEvents) {
-            // Fallback: only emit full text if stream events aren't available
-            envelopes.push(
-              this.makeEnvelope("content.delta", threadId, {
-                turnId, kind: "text", delta: block.text,
-              }, turnId, message)
-            );
-          } else if (block.type === "tool_use") {
+          // Text blocks are handled in runAgentQuery with proper delta computation
+          // for partial messages. Stream event text deltas are handled above.
+          if (block.type === "tool_use") {
             envelopes.push(
               this.makeEnvelope("item.started", threadId, {
                 turnId,
@@ -895,15 +928,8 @@ export class ClaudeCodeAdapter implements ProviderAdapterShape {
                 input: block.input ?? {},
               }, turnId, message)
             );
-          } else if (block.type === "thinking" && !hasStreamEvents) {
-            // Fallback: only emit full thinking if stream events aren't available
-            if (block.thinking) {
-              envelopes.push(
-                this.makeEnvelope("content.delta", threadId, {
-                  turnId, kind: "reasoning", delta: block.thinking,
-                }, turnId, message)
-              );
-            }
+          // Thinking blocks: same as text — stream events handle deltas,
+          // skip the full-block fallback to avoid duplication
           }
         }
       }
@@ -938,6 +964,13 @@ export class ClaudeCodeAdapter implements ProviderAdapterShape {
       envelopes.push(
         this.makeEnvelope("session.configured", threadId, {
           sessionId: (message as any).session_id,
+        }, turnId, message)
+      );
+    } else if (message.type === "system" && (message as any).subtype === "compact_boundary") {
+      envelopes.push(
+        this.makeEnvelope("context.compacted", threadId, {
+          turnId,
+          message: "Context compacted — prior conversation was summarized",
         }, turnId, message)
       );
     }

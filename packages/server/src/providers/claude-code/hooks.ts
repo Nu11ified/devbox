@@ -182,6 +182,23 @@ export function createAgentHooks(ctx: HookContext) {
     ],
 
     /**
+     * PreCompact fires before the SDK compacts conversation context.
+     * Emit a timeline event so users see compaction checkpoints during long runs.
+     */
+    PreCompact: [
+      async (_event: Record<string, unknown>) => {
+        console.log(`[hooks] PreCompact: context compaction starting thread=${ctx.threadId}`);
+        await ctx.enqueue(
+          ctx.makeEnvelope("context.compacted", ctx.threadId, {
+            turnId: ctx.turnId,
+            message: "Context compacted — conversation summarized to free up context window",
+          }, ctx.turnId)
+        );
+        return {};
+      },
+    ],
+
+    /**
      * Stop hook fires when the agent decides to stop.
      * Return { stop: false } to override and continue.
      */

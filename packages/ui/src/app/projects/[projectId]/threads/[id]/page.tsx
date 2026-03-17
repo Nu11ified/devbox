@@ -5,7 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import { api } from "@/lib/api";
 import { useThreadSocket, type ThreadEvent } from "@/hooks/use-thread-socket";
 import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
-import { Timeline, type TimelineItem } from "@/components/thread/timeline";
+import { Timeline, type TimelineItem, type CheckpointEntry } from "@/components/thread/timeline";
 import { Composer } from "@/components/thread/composer";
 import { DiffPanel } from "@/components/thread/diff-panel";
 import { TerminalDrawer, type TerminalDrawerHandle } from "@/components/thread/terminal-drawer";
@@ -35,11 +35,12 @@ export default function ProjectThreadDetailPage() {
   const [terminalSessionId, setTerminalSessionId] = useState<string | null>(null);
   const [costUsd, setCostUsd] = useState<number>(0);
   const [numTurns, setNumTurns] = useState<number>(0);
-  const [checkpoints, setCheckpoints] = useState<string[]>([]);
+  const [checkpoints, setCheckpoints] = useState<CheckpointEntry[]>([]);
   const [sshHost, setSshHost] = useState<string | null>(null);
   const terminalDrawerRef = useRef<TerminalDrawerHandle>(null);
   const assistantTextRef = useRef<string>("");
   const assistantItemIdRef = useRef<string | null>(null);
+  const currentTurnIdRef = useRef<string | null>(null);
 
   /** Load thread data from API and rebuild timeline items. */
   const loadThread = useCallback(async () => {
@@ -78,9 +79,22 @@ export default function ProjectThreadDetailPage() {
         }
       }
 
+      // Rebuild checkpoints from persisted events
+      const restoredCheckpoints: CheckpointEntry[] = [];
+      for (const evt of data.events ?? []) {
+        if (evt.type === "checkpoint.created" && evt.payload?.checkpointId) {
+          restoredCheckpoints.push({
+            id: evt.payload.checkpointId,
+            turnId: evt.turnId ?? evt.payload?.turnId ?? "",
+          });
+        }
+      }
+      setCheckpoints(restoredCheckpoints);
+
       for (const turn of data.turns ?? []) {
+        const tid = turn.turnId ?? turn.id;
         // Insert tool use events that belong to this turn BEFORE the turn text
-        const turnEvents = eventsByTurn.get(turn.turnId ?? turn.id) ?? [];
+        const turnEvents = eventsByTurn.get(tid) ?? [];
         for (const evt of turnEvents) {
           if (evt.type === "item.started") {
             const p = evt.payload;
@@ -95,6 +109,7 @@ export default function ProjectThreadDetailPage() {
               completed,
               output: cp?.output,
               error: cp?.error,
+              turnId: tid,
             });
           } else if (evt.type === "request.opened") {
             const p = evt.payload;
@@ -109,6 +124,7 @@ export default function ProjectThreadDetailPage() {
               description: p.description,
               input: p.input,
               resolved: true, // Historical requests are resolved
+              turnId: tid,
             });
           } else if (evt.type === "ask_user") {
             const p = evt.payload;
@@ -119,6 +135,14 @@ export default function ProjectThreadDetailPage() {
               options: p.options,
               requestId: p.requestId,
               resolved: resolvedRequests.has(p.requestId),
+              turnId: tid,
+            });
+          } else if (evt.type === "context.compacted") {
+            initial.push({
+              id: `compact-${evt.eventId}`,
+              kind: "context_compacted",
+              content: evt.payload?.message ?? "Context compacted",
+              turnId: tid,
             });
           }
         }
@@ -127,6 +151,7 @@ export default function ProjectThreadDetailPage() {
           id: turn.id,
           kind: turn.role === "user" ? "user_message" : "assistant_text",
           content: turn.content ?? "",
+          turnId: tid,
         });
       }
 
@@ -163,15 +188,26 @@ export default function ProjectThreadDetailPage() {
     if (event.type === "thread.turn.started") {
       assistantTextRef.current = "";
       assistantItemIdRef.current = null;
+      if (event.turnId) currentTurnIdRef.current = event.turnId;
+    }
+
+    // Rewind completed — reload thread state from server
+    if (event.type === "thread.rewindComplete") {
+      loadThread();
+      return;
     }
 
     if (event.type === "thread.event" && event.event) {
       const e = event.event;
 
+      // Track current turnId from event envelopes
+      if (e.turnId) currentTurnIdRef.current = e.turnId;
+
       switch (e.type) {
         case "turn.started": {
           assistantTextRef.current = "";
           assistantItemIdRef.current = null;
+          if (e.payload?.turnId) currentTurnIdRef.current = e.payload.turnId;
           break;
         }
 
@@ -189,6 +225,7 @@ export default function ProjectThreadDetailPage() {
                 kind: "assistant_text",
                 content: assistantTextRef.current,
                 streaming: true,
+                turnId: currentTurnIdRef.current ?? undefined,
               };
               if (existing >= 0) {
                 const next = [...prev];
@@ -231,6 +268,7 @@ export default function ProjectThreadDetailPage() {
               toolCategory: e.payload.toolCategory,
               input: e.payload.input,
               completed: false,
+              turnId: currentTurnIdRef.current ?? undefined,
             },
           ]);
           break;
@@ -304,7 +342,10 @@ export default function ProjectThreadDetailPage() {
         }
 
         case "checkpoint.created": {
-          setCheckpoints((prev) => [...prev, e.payload.checkpointId]);
+          setCheckpoints((prev) => [
+            ...prev,
+            { id: e.payload.checkpointId, turnId: currentTurnIdRef.current ?? "" },
+          ]);
           break;
         }
 
@@ -319,6 +360,14 @@ export default function ProjectThreadDetailPage() {
               options: e.payload.options,
               requestId: e.payload.requestId,
             },
+          ]);
+          break;
+        }
+
+        case "context.compacted": {
+          setItems((prev) => [
+            ...prev,
+            { id: `compact-${Date.now()}`, kind: "context_compacted", content: e.payload.message },
           ]);
           break;
         }
@@ -377,7 +426,7 @@ export default function ProjectThreadDetailPage() {
       ]);
       setRunning(false);
     }
-  }, []);
+  }, [loadThread]);
 
   const { connected, sendTurn, interrupt, approve, stop, send } = useThreadSocket({
     threadId: id,
@@ -411,9 +460,13 @@ export default function ProjectThreadDetailPage() {
 
   const handleSend = useCallback(
     (text: string, model?: string, effort?: string) => {
+      // The turnId will be assigned when the server responds with turn.started,
+      // but we set a provisional one for the user_message item now
+      const provisionalTurnId = `pending-${Date.now()}`;
+      currentTurnIdRef.current = provisionalTurnId;
       setItems((prev) => [
         ...prev,
-        { id: `user-${Date.now()}`, kind: "user_message" as const, content: text },
+        { id: `user-${Date.now()}`, kind: "user_message" as const, content: text, turnId: provisionalTurnId },
       ]);
       setRunning(true);
       sendTurn(text, model, effort);
@@ -488,6 +541,18 @@ export default function ProjectThreadDetailPage() {
     const uri = `${scheme}://vscode-remote/ssh-remote+${sshHost}${thread.worktreePath}`;
     window.open(uri, "_blank");
   }
+
+  const handleRewind = useCallback(
+    (checkpointId: string) => {
+      send({ type: "thread.rewindFiles", checkpointId });
+      // Remove this checkpoint and any after it
+      setCheckpoints((prev) => {
+        const idx = prev.findIndex((cp) => cp.id === checkpointId);
+        return idx >= 0 ? prev.slice(0, idx + 1) : prev;
+      });
+    },
+    [send]
+  );
 
   function handleResume() {
     send({ type: "thread.continueSession" });
@@ -584,8 +649,7 @@ export default function ProjectThreadDetailPage() {
               onClick={() => {
                 const last = checkpoints[checkpoints.length - 1];
                 if (last) {
-                  send({ type: "thread.rewindFiles", checkpointId: last });
-                  setCheckpoints((prev) => prev.slice(0, -1));
+                  handleRewind(last.id);
                 }
               }}
               className="flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-mono text-orange-500/70 hover:bg-orange-500/10 transition-colors"
@@ -679,7 +743,14 @@ export default function ProjectThreadDetailPage() {
       {/* Main content */}
       <div className="flex flex-1 min-h-0">
         <div className="flex flex-col flex-1 min-w-0">
-          <Timeline items={items} onApprove={approve} onRespondToAsk={handleRespondToAsk} />
+          <Timeline
+            items={items}
+            onApprove={approve}
+            onRespondToAsk={handleRespondToAsk}
+            onRewind={handleRewind}
+            checkpoints={checkpoints}
+            running={running}
+          />
 
           <Composer
             onSend={handleSend}
