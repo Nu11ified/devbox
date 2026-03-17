@@ -67,7 +67,7 @@ export interface TurnStartResult {
 }
 
 export type ApprovalDecision =
-  | { type: "allow" }
+  | { type: "allow"; reason?: string }
   | { type: "deny"; reason?: string }
   | { type: "allow_session" };
 

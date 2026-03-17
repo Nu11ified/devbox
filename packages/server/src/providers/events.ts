@@ -154,6 +154,14 @@ export interface SessionResumedPayload {
   resumedFrom: string | null;
 }
 
+export interface ThreadStatusPayload {
+  status: "needs_input" | "running";
+  requestId?: string;
+  question?: string;
+  options?: Array<{ label: string; value: string }>;
+  threadName?: string;
+}
+
 // Discriminated Union
 export type ProviderRuntimeEvent =
   | { type: "session.started"; payload: SessionStartedPayload }
@@ -175,7 +183,8 @@ export type ProviderRuntimeEvent =
   | { type: "ask_user"; payload: AskUserPayload }
   | { type: "team.message.received"; payload: TeamMessageReceivedPayload }
   | { type: "team.task.updated"; payload: TeamTaskUpdatedPayload }
-  | { type: "session.resumed"; payload: SessionResumedPayload };
+  | { type: "session.resumed"; payload: SessionResumedPayload }
+  | { type: "thread.status"; payload: ThreadStatusPayload };
 
 // Envelope wrapping each event with metadata
 export interface ProviderEventEnvelope {

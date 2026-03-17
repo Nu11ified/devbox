@@ -7,6 +7,7 @@ import { ArrowLeft, Plus, GitBranch, CircleDot, Archive, ArchiveRestore, Users }
 import { cn } from "@/lib/utils";
 import { api, type ProjectDetail, type TeamItem } from "@/lib/api";
 import { NewTeamDialog } from "@/components/team/new-team-dialog";
+import { usePendingInputs } from "@/hooks/use-project-events";
 
 // ── Helpers ────────────────────────────────────────────────────────
 
@@ -22,6 +23,7 @@ function timeAgo(date: string): string {
 }
 
 const threadStatusDot: Record<string, string> = {
+  needs_input: "bg-amber-400 animate-pulse",
   active: "bg-emerald-400 animate-pulse",
   starting: "bg-emerald-400 animate-pulse",
   idle: "bg-zinc-600",
@@ -69,6 +71,7 @@ export function ProjectSidebar({
     updatedAt: string;
   }>>([]);
   const [archiveLoading, setArchiveLoading] = useState(false);
+  const { pendingInputs } = usePendingInputs();
 
   useEffect(() => {
     let cancelled = false;
@@ -293,7 +296,9 @@ export function ProjectSidebar({
                     <span
                       className={cn(
                         "w-1.5 h-1.5 rounded-full shrink-0",
-                        threadStatusDot[thread.status] || "bg-zinc-600",
+                        pendingInputs.has(thread.id)
+                          ? threadStatusDot.needs_input
+                          : (threadStatusDot[thread.status] || "bg-zinc-600"),
                       )}
                     />
 
