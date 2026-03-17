@@ -1,10 +1,10 @@
 "use client";
 
 import { useEffect, useState, useCallback, createContext, useContext } from "react";
-import { X, CheckCircle2, AlertCircle, Info, Loader2 } from "lucide-react";
+import { X, CheckCircle2, AlertCircle, Info, Loader2, AlertTriangle } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-type ToastType = "success" | "error" | "info" | "progress";
+type ToastType = "success" | "error" | "info" | "progress" | "warning";
 
 interface Toast {
   id: string;
@@ -14,6 +14,7 @@ interface Toast {
   duration?: number;
   stages?: string[];
   currentStage?: number;
+  onClick?: () => void;
 }
 
 interface ToastContextValue {
@@ -78,6 +79,7 @@ const iconMap: Record<ToastType, typeof CheckCircle2> = {
   error: AlertCircle,
   info: Info,
   progress: Loader2,
+  warning: AlertTriangle,
 };
 
 const colorMap: Record<ToastType, string> = {
@@ -85,6 +87,7 @@ const colorMap: Record<ToastType, string> = {
   error: "text-red-400",
   info: "text-zinc-400",
   progress: "text-blue-400",
+  warning: "text-amber-400",
 };
 
 function ToastItem({
@@ -109,6 +112,13 @@ function ToastItem({
           ? "opacity-100 translate-y-0"
           : "opacity-0 translate-y-2"
       )}
+      onClick={() => {
+        if (toast.onClick) {
+          toast.onClick();
+          onDismiss();
+        }
+      }}
+      style={{ cursor: toast.onClick ? "pointer" : undefined }}
     >
       <Icon
         className={cn(
