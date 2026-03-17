@@ -15,6 +15,31 @@ interface ThreadConnection {
   userId: string;
 }
 
+interface ProjectConnection {
+  ws: WebSocket;
+  projectId: string;
+  userId: string;
+}
+
+// Project-level connections for thread.status fan-out
+const projectConnections = new Map<string, Set<ProjectConnection>>();
+// Cache: threadId → projectId (populated from DB on first lookup)
+const threadToProject = new Map<string, string>();
+
+async function resolveProjectId(threadId: string): Promise<string | null> {
+  const cached = threadToProject.get(threadId);
+  if (cached) return cached;
+  const thread = await prisma.thread.findUnique({
+    where: { id: threadId },
+    select: { projectId: true },
+  });
+  if (thread?.projectId) {
+    threadToProject.set(threadId, thread.projectId);
+    return thread.projectId;
+  }
+  return null;
+}
+
 export function setupThreadWebSocket(
   server: HttpServer,
   providerService: ProviderService
@@ -398,35 +423,64 @@ function startEventFanOut(
 
   const program = Stream.runForEach(stream, (envelope: ProviderEventEnvelope) =>
     Effect.gen(function* () {
-      // Fan out to WebSocket clients FIRST (before persistence, which may fail)
-      const threadConns = connections.get(envelope.threadId as string);
-      if (threadConns && threadConns.size > 0) {
-        // Strip `raw` field — it's the full SDK message, unnecessary for the UI
-        const { raw, ...slimEnvelope } = envelope as ProviderEventEnvelope & { raw?: unknown };
-        try {
-          const payload = JSON.stringify({
-            type: "thread.event",
-            event: slimEnvelope,
-          });
+      const isThreadStatus = envelope.type === "thread.status";
 
-          for (const conn of threadConns) {
-            if (conn.ws.readyState === WebSocket.OPEN) {
-              conn.ws.send(payload);
+      // thread.status events are transient — do NOT persist or send to thread-level clients
+      if (!isThreadStatus) {
+        // Fan out to thread-level WebSocket clients (before persistence)
+        const threadConns = connections.get(envelope.threadId as string);
+        if (threadConns && threadConns.size > 0) {
+          const { raw, ...slimEnvelope } = envelope as ProviderEventEnvelope & { raw?: unknown };
+          try {
+            const payload = JSON.stringify({
+              type: "thread.event",
+              event: slimEnvelope,
+            });
+
+            for (const conn of threadConns) {
+              if (conn.ws.readyState === WebSocket.OPEN) {
+                conn.ws.send(payload);
+              }
             }
+          } catch (err) {
+            console.error("[thread-ws] Failed to serialize event:", envelope.type, err);
           }
-        } catch (err) {
-          console.error("[thread-ws] Failed to serialize event:", envelope.type, err);
         }
+
+        // Persist event to database (non-fatal)
+        yield* providerService.persistEvent(envelope).pipe(
+          Effect.catchAll((err) =>
+            Effect.sync(() => {
+              console.error("[thread-ws] Failed to persist event:", envelope.type, err);
+            })
+          )
+        );
       }
 
-      // Persist event to database (non-fatal — don't kill the stream on failure)
-      yield* providerService.persistEvent(envelope).pipe(
-        Effect.catchAll((err) =>
-          Effect.sync(() => {
-            console.error("[thread-ws] Failed to persist event:", envelope.type, err);
-          })
-        )
-      );
+      // Forward thread.status events to project-level connections
+      if (isThreadStatus) {
+        yield* Effect.promise(async () => {
+          const pid = await resolveProjectId(envelope.threadId as string);
+          if (!pid) return;
+          const projConns = projectConnections.get(pid);
+          if (!projConns || projConns.size === 0) return;
+
+          try {
+            const payload = JSON.stringify({
+              type: "thread.status",
+              threadId: envelope.threadId,
+              ...envelope.payload,
+            });
+            for (const conn of projConns) {
+              if (conn.ws.readyState === WebSocket.OPEN) {
+                conn.ws.send(payload);
+              }
+            }
+          } catch (err) {
+            console.error("[thread-ws] Failed to fan out thread.status:", err);
+          }
+        });
+      }
     })
   );
 
@@ -439,4 +493,134 @@ function startEventFanOut(
       )
     )
   );
+}
+
+export function setupProjectEventsWebSocket(
+  server: HttpServer,
+): void {
+  const wss = new WebSocketServer({ noServer: true });
+
+  server.on("upgrade", (request, socket, head) => {
+    const url = new URL(request.url ?? "", `http://${request.headers.host}`);
+    const match = url.pathname.match(/^\/ws\/projects\/([^/]+)\/events$/);
+    if (match) {
+      wss.handleUpgrade(request, socket, head, (ws) => {
+        wss.emit("connection", ws, request, match[1]);
+      });
+    }
+  });
+
+  wss.on("connection", async (ws: WebSocket, req: any, projectId: string) => {
+    // Authenticate via ticket or session cookie (same pattern as thread WS)
+    const url = new URL(req.url ?? "", `http://${req.headers.host}`);
+    let authedUserId: string | null = null;
+
+    const ticket = url.searchParams.get("ticket");
+    if (ticket) {
+      authedUserId = consumeWsTicket(ticket);
+    }
+
+    if (!authedUserId) {
+      const cookieHeader = req.headers.cookie ?? "";
+      const cookies = Object.fromEntries(
+        cookieHeader.split(";").map((c: string) => {
+          const [key, ...rest] = c.trim().split("=");
+          return [key, rest.join("=")];
+        })
+      );
+      const sessionToken = cookies["better-auth.session_token"] ?? cookies["__Secure-better-auth.session_token"];
+      if (sessionToken) {
+        const session = await prisma.session.findUnique({
+          where: { token: sessionToken },
+          include: { user: true },
+        });
+        if (session && session.expiresAt >= new Date()) {
+          authedUserId = session.user.id;
+        }
+      }
+    }
+
+    if (!authedUserId) {
+      ws.close(4001, "Authentication required");
+      return;
+    }
+
+    // Verify project exists and belongs to user
+    const project = await prisma.project.findUnique({
+      where: { id: projectId },
+      select: { userId: true, name: true },
+    });
+    if (!project || (project.userId && project.userId !== authedUserId)) {
+      ws.close(4003, "Not authorized");
+      return;
+    }
+
+    console.log(`[project-ws] Client connected: project=${projectId} user=${authedUserId}`);
+
+    const conn: ProjectConnection = { ws, projectId, userId: authedUserId };
+    if (!projectConnections.has(projectId)) {
+      projectConnections.set(projectId, new Set());
+    }
+    projectConnections.get(projectId)!.add(conn);
+
+    // Send initial state: find threads with unresolved ask_user requests
+    try {
+      const threads = await prisma.thread.findMany({
+        where: { projectId, archivedAt: null },
+        select: { id: true, title: true },
+      });
+      for (const thread of threads) {
+        const lastAsk = await prisma.threadEvent.findFirst({
+          where: { threadId: thread.id, type: "ask_user" },
+          orderBy: { createdAt: "desc" },
+        });
+        if (lastAsk) {
+          const resolved = await prisma.threadEvent.findFirst({
+            where: {
+              threadId: thread.id,
+              type: "request.resolved",
+              payload: { path: ["requestId"], equals: (lastAsk.payload as any)?.requestId },
+            },
+          });
+          if (!resolved) {
+            const p = lastAsk.payload as any;
+            ws.send(JSON.stringify({
+              type: "thread.status",
+              threadId: thread.id,
+              status: "needs_input",
+              requestId: p?.requestId,
+              question: p?.question ?? "Agent needs input",
+              options: p?.options ?? [],
+              threadName: thread.title,
+            }));
+          }
+        }
+      }
+    } catch (err) {
+      console.error("[project-ws] Failed to send initial state:", err);
+    }
+
+    // Keep-alive
+    const pingInterval = setInterval(() => {
+      if (ws.readyState === WebSocket.OPEN) ws.ping();
+    }, 25_000);
+
+    ws.on("message", (raw) => {
+      try {
+        const msg = JSON.parse(String(raw));
+        if (msg.type === "ping") {
+          ws.send(JSON.stringify({ type: "pong" }));
+        }
+      } catch {}
+    });
+
+    ws.on("close", () => {
+      clearInterval(pingInterval);
+      console.log(`[project-ws] Client disconnected: project=${projectId}`);
+      projectConnections.get(projectId)?.delete(conn);
+      if (projectConnections.get(projectId)?.size === 0) {
+        projectConnections.delete(projectId);
+      }
+    });
+  });
 }
