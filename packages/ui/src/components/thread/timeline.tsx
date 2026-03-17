@@ -3,8 +3,9 @@
 import { useRef, useEffect } from "react";
 import { MessageBubble } from "./message-bubble";
 import { ApprovalCard } from "./approval-card";
+import { AskUserCard } from "./ask-user-card";
 import { WorkItem } from "./work-item";
-import { Bot, CheckCircle2, Circle, Loader2, HelpCircle } from "lucide-react";
+import { Bot, CheckCircle2, Circle, Loader2 } from "lucide-react";
 
 export interface TodoItem {
   id: string;
@@ -37,9 +38,10 @@ export interface TimelineItem {
 interface TimelineProps {
   items: TimelineItem[];
   onApprove: (requestId: string, decision: "allow" | "deny" | "allow_session") => void;
+  onRespondToAsk: (requestId: string, answer: string) => void;
 }
 
-export function Timeline({ items, onApprove }: TimelineProps) {
+export function Timeline({ items, onApprove, onRespondToAsk }: TimelineProps) {
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -134,26 +136,15 @@ export function Timeline({ items, onApprove }: TimelineProps) {
               );
             case "ask_user":
               return (
-                <div key={item.id} className="flex gap-3 items-start max-w-3xl mx-auto">
-                  <div className="w-7 h-7 rounded-full bg-blue-500/10 flex items-center justify-center shrink-0">
-                    <HelpCircle className="h-3.5 w-3.5 text-blue-500/60" />
-                  </div>
-                  <div className="bg-blue-500/5 border border-blue-500/20 rounded-lg px-3 py-2 flex-1">
-                    <p className="text-sm text-blue-300 mb-2">{item.question}</p>
-                    {(item.options ?? []).length > 0 && (
-                      <div className="flex flex-wrap gap-1.5">
-                        {item.options!.map((opt, i) => (
-                          <span
-                            key={i}
-                            className="text-[11px] px-2 py-0.5 rounded-md bg-blue-500/10 text-blue-400 border border-blue-500/20"
-                          >
-                            {opt.label}
-                          </span>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                </div>
+                <AskUserCard
+                  key={item.id}
+                  requestId={item.requestId ?? ""}
+                  question={item.question ?? ""}
+                  options={item.options}
+                  resolved={item.resolved}
+                  response={item.decision}
+                  onRespond={onRespondToAsk}
+                />
               );
             case "error":
               return (
