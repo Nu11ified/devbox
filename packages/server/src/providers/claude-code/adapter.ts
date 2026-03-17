@@ -402,8 +402,7 @@ export class ClaudeCodeAdapter implements ProviderAdapterShape {
       model: model ?? state.session.model ?? "claude-opus-4-6",
       cwd,
       permissionMode,
-      maxTurns: 200,
-      maxBudgetUsd: 75,
+      // No maxTurns or maxBudgetUsd — let the agent loop run until the task is complete
       effort: effort || "high",
       abortController: state.abortController,
       env,
@@ -927,17 +926,10 @@ export class ClaudeCodeAdapter implements ProviderAdapterShape {
             numTurns: message.num_turns,
           }, turnId, message)
         );
-      } else if (message.subtype === "error_max_budget_usd") {
+      } else if (message.subtype === "error_max_budget_usd" || message.subtype === "error_max_turns") {
         envelopes.push(
           this.makeEnvelope("runtime.error", threadId, {
-            message: "Budget limit reached ($5.00). Send another message to continue.",
-            recoverable: true,
-          }, turnId, message)
-        );
-      } else if (message.subtype === "error_max_turns") {
-        envelopes.push(
-          this.makeEnvelope("runtime.error", threadId, {
-            message: "Turn limit reached (50 turns). Send another message to continue.",
+            message: `Agent loop stopped: ${message.subtype}. Send another message to continue.`,
             recoverable: true,
           }, turnId, message)
         );
