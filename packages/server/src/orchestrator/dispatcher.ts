@@ -19,8 +19,9 @@ function sanitizeBranchName(name: string): string {
 }
 
 /**
- * Build the autonomous prompt that tells Claude to implement the issue
- * without asking questions, just code.
+ * Build the autonomous prompt that tells Claude to implement the issue.
+ * Behavioral rules (no questions, commit often, etc.) live in the system prompt
+ * via the `append` field on the claude_code preset — this prompt is purely the task.
  */
 function buildAutonomousPrompt(issue: {
   identifier: string;
@@ -29,22 +30,15 @@ function buildAutonomousPrompt(issue: {
   repo: string;
   branch: string;
 }): string {
-  return `You are working autonomously on a GitHub issue. Do NOT ask questions — just implement the solution.
-
-## Issue: ${issue.identifier} — ${issue.title}
+  return `## Issue: ${issue.identifier} — ${issue.title}
 
 ${issue.body}
 
-## Instructions
+---
 
-1. Read the codebase to understand the relevant code
-2. Implement the fix or feature described in the issue
-3. Make sure your changes are complete and working
-4. Do NOT ask for clarification — make reasonable decisions and implement
-5. If tests exist, run them to verify your changes
-6. Keep changes focused on the issue — don't refactor unrelated code
+**Repository:** ${issue.repo} (branch: \`${issue.branch}\`)
 
-Repository: ${issue.repo} (branch: ${issue.branch})
+Implement this issue. Start by reading the relevant code to understand the codebase, then make the changes described above. Commit your work when complete.
 `;
 }
 

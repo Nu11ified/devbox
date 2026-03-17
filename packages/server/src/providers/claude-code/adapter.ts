@@ -398,6 +398,28 @@ export class ClaudeCodeAdapter implements ProviderAdapterShape {
       permissionMode = "plan";
     }
 
+    // Build system prompt: threads get the Claude Code preset as-is,
+    // issues get additional autonomous instructions appended
+    const systemPrompt = isFullAccess
+      ? {
+          type: "preset" as const,
+          preset: "claude_code" as const,
+          append: [
+            "# Autonomous Mode",
+            "",
+            "You are running autonomously on a dispatched issue. There is NO human operator watching — do NOT ask questions, do NOT use AskUserQuestion, do NOT wait for confirmation.",
+            "",
+            "## Behavioral Rules",
+            "- Make reasonable decisions and implement. If something is ambiguous, pick the most sensible approach and note your reasoning in a code comment or commit message.",
+            "- Commit frequently with clear conventional-commit messages (feat:, fix:, refactor:, etc.).",
+            "- Run tests after making changes. If tests fail, fix them before moving on.",
+            "- Keep changes focused on the issue — don't refactor unrelated code.",
+            "- If you get stuck or blocked, leave a clear TODO comment explaining the blocker and move on to what you can complete.",
+            "- When done, ensure all changes are committed. Do NOT push — the system handles push and PR creation automatically.",
+          ].join("\n"),
+        }
+      : { type: "preset" as const, preset: "claude_code" as const };
+
     const opts: Record<string, unknown> = {
       model: model ?? state.session.model ?? "claude-opus-4-6",
       cwd,
@@ -411,8 +433,7 @@ export class ClaudeCodeAdapter implements ProviderAdapterShape {
       settingSources: ["project"],
       // File checkpointing: enables rewindFiles() for undo support
       enableFileCheckpointing: true,
-      // Use Claude Code's full system prompt (coding guidelines, response style, project context)
-      systemPrompt: { preset: "claude_code" },
+      systemPrompt,
     };
 
     // --- Subagents ---
