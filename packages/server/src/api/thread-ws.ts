@@ -23,7 +23,8 @@ interface ProjectConnection {
 
 // Project-level connections for thread.status fan-out
 const projectConnections = new Map<string, Set<ProjectConnection>>();
-// Cache: threadId → projectId (populated from DB on first lookup)
+// Cache: threadId → projectId (populated from DB on first lookup, bounded to prevent leaks)
+const THREAD_PROJECT_CACHE_MAX = 10_000;
 const threadToProject = new Map<string, string>();
 
 async function resolveProjectId(threadId: string): Promise<string | null> {
@@ -34,6 +35,11 @@ async function resolveProjectId(threadId: string): Promise<string | null> {
     select: { projectId: true },
   });
   if (thread?.projectId) {
+    // Evict oldest entries if cache is full
+    if (threadToProject.size >= THREAD_PROJECT_CACHE_MAX) {
+      const firstKey = threadToProject.keys().next().value;
+      if (firstKey) threadToProject.delete(firstKey);
+    }
     threadToProject.set(threadId, thread.projectId);
     return thread.projectId;
   }
@@ -564,35 +570,49 @@ export function setupProjectEventsWebSocket(
     projectConnections.get(projectId)!.add(conn);
 
     // Send initial state: find threads with unresolved ask_user requests
+    // Uses batched queries instead of per-thread lookups to avoid N+1
     try {
       const threads = await prisma.thread.findMany({
         where: { projectId, archivedAt: null },
         select: { id: true, title: true },
       });
-      for (const thread of threads) {
-        const lastAsk = await prisma.threadEvent.findFirst({
-          where: { threadId: thread.id, type: "ask_user" },
+      const threadIds = threads.map((t) => t.id);
+      if (threadIds.length > 0) {
+        // Batch: get the most recent ask_user event per thread
+        const askEvents = await prisma.threadEvent.findMany({
+          where: { threadId: { in: threadIds }, type: "ask_user" },
           orderBy: { createdAt: "desc" },
+          distinct: ["threadId"],
         });
-        if (lastAsk) {
-          const resolved = await prisma.threadEvent.findFirst({
+        if (askEvents.length > 0) {
+          // Batch: get all request.resolved events for these threads
+          const requestIds = askEvents.map((e) => (e.payload as any)?.requestId).filter(Boolean);
+          const resolvedEvents = await prisma.threadEvent.findMany({
             where: {
-              threadId: thread.id,
+              threadId: { in: threadIds },
               type: "request.resolved",
-              payload: { path: ["requestId"], equals: (lastAsk.payload as any)?.requestId },
+              payload: { path: ["requestId"], in: requestIds },
             },
+            select: { payload: true },
           });
-          if (!resolved) {
-            const p = lastAsk.payload as any;
-            ws.send(JSON.stringify({
-              type: "thread.status",
-              threadId: thread.id,
-              status: "needs_input",
-              requestId: p?.requestId,
-              question: p?.question ?? "Agent needs input",
-              options: p?.options ?? [],
-              threadName: thread.title,
-            }));
+          const resolvedRequestIds = new Set(
+            resolvedEvents.map((e) => (e.payload as any)?.requestId).filter(Boolean)
+          );
+
+          const titleMap = new Map(threads.map((t) => [t.id, t.title]));
+          for (const ask of askEvents) {
+            const p = ask.payload as any;
+            if (p?.requestId && !resolvedRequestIds.has(p.requestId)) {
+              ws.send(JSON.stringify({
+                type: "thread.status",
+                threadId: ask.threadId,
+                status: "needs_input",
+                requestId: p.requestId,
+                question: p?.question ?? "Agent needs input",
+                options: p?.options ?? [],
+                threadName: titleMap.get(ask.threadId) ?? undefined,
+              }));
+            }
           }
         }
       }

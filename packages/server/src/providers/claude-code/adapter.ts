@@ -535,7 +535,7 @@ export class ClaudeCodeAdapter implements ProviderAdapterShape {
               question: questions.length > 0 ? questions[0].question : "Agent needs input",
               options: questions.length > 0 ? questions[0].options : [],
               threadName: threadRecord?.title ?? undefined,
-            } as any, turnId)
+            }, turnId)
           );
 
           const deferred = Effect.runSync(Deferred.make<ApprovalDecision, never>());
@@ -555,7 +555,7 @@ export class ClaudeCodeAdapter implements ProviderAdapterShape {
           await self.enqueue(
             self.makeEnvelope("thread.status", threadId, {
               status: "running",
-            } as any, turnId)
+            }, turnId)
           );
 
           if (decision.type === "deny") {

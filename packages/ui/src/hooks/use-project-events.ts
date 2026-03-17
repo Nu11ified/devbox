@@ -65,6 +65,12 @@ export function PendingInputsProvider({
   const router = useRouter();
   const { toast } = useToast();
 
+  // Store toast/router in refs to decouple WS lifecycle from reference changes
+  const toastRef = useRef(toast);
+  toastRef.current = toast;
+  const routerRef = useRef(router);
+  routerRef.current = router;
+
   useEffect(() => {
     let disposed = false;
 
@@ -140,13 +146,13 @@ export function PendingInputsProvider({
               const preview = input.question.length > 60
                 ? input.question.slice(0, 57) + "..."
                 : input.question;
-              toast({
+              toastRef.current({
                 type: "warning",
                 title: input.threadName ?? "Thread needs input",
                 description: preview,
                 duration: 8000,
                 onClick: () => {
-                  router.push(`/projects/${projectId}/threads/${data.threadId}`);
+                  routerRef.current.push(`/projects/${projectId}/threads/${data.threadId}`);
                 },
               });
             } else if (data.status === "running") {
@@ -157,7 +163,9 @@ export function PendingInputsProvider({
               });
             }
           }
-        } catch {}
+        } catch (err) {
+          console.warn("[project-ws] Failed to parse message:", err);
+        }
       };
     }
 
@@ -171,7 +179,7 @@ export function PendingInputsProvider({
       wsRef.current?.close();
       wsRef.current = null;
     };
-  }, [projectId, router, toast]);
+  }, [projectId]);
 
   return (
     <PendingInputsContext.Provider value={{ pendingInputs }}>
