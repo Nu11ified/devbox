@@ -411,6 +411,8 @@ export class ClaudeCodeAdapter implements ProviderAdapterShape {
       settingSources: ["project"],
       // File checkpointing: enables rewindFiles() for undo support
       enableFileCheckpointing: true,
+      // Use Claude Code's full system prompt (coding guidelines, response style, project context)
+      systemPrompt: { preset: "claude_code" },
     };
 
     // --- Subagents ---
