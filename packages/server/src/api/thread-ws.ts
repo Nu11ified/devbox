@@ -453,14 +453,27 @@ function startEventFanOut(
           }
         }
 
-        // Persist event to database (non-fatal)
-        yield* providerService.persistEvent(envelope).pipe(
-          Effect.catchAll((err) =>
-            Effect.sync(() => {
-              console.error("[thread-ws] Failed to persist event:", envelope.type, err);
-            })
-          )
-        );
+        // Persist event to database (non-fatal, fire-and-forget for content.delta)
+        if (envelope.type === "content.delta") {
+          // Don't block the fan-out fiber on high-frequency delta persistence
+          Effect.runFork(
+            providerService.persistEvent(envelope).pipe(
+              Effect.catchAll((err) =>
+                Effect.sync(() => {
+                  console.error("[thread-ws] Failed to persist delta:", err);
+                })
+              )
+            )
+          );
+        } else {
+          yield* providerService.persistEvent(envelope).pipe(
+            Effect.catchAll((err) =>
+              Effect.sync(() => {
+                console.error("[thread-ws] Failed to persist event:", envelope.type, err);
+              })
+            )
+          );
+        }
       }
 
       // Forward thread.status events to project-level connections
@@ -487,14 +500,36 @@ function startEventFanOut(
           }
         });
       }
-    })
+    }).pipe(
+      // Per-event error isolation: catch both typed errors and defects
+      // so a single bad event never kills the entire fan-out fiber
+      Effect.catchAllDefect((defect) =>
+        Effect.sync(() => {
+          console.error("[thread-ws] Defect in fan-out for event:", envelope.type, defect);
+        })
+      ),
+      Effect.catchAll((err) =>
+        Effect.sync(() => {
+          console.error("[thread-ws] Error in fan-out for event:", envelope.type, err);
+        })
+      )
+    )
   );
 
   Effect.runFork(
     program.pipe(
+      // Stream-level catch: log and restart the fiber
       Effect.catchAll((error) =>
         Effect.sync(() => {
-          console.error("[thread-ws] Event fan-out stream error:", error);
+          console.error("[thread-ws] Event fan-out stream terminated, restarting:", error);
+          // Restart the fan-out — the stream from the queue is still alive
+          startEventFanOut(providerService, connections);
+        })
+      ),
+      Effect.catchAllDefect((defect) =>
+        Effect.sync(() => {
+          console.error("[thread-ws] Event fan-out stream defect, restarting:", defect);
+          startEventFanOut(providerService, connections);
         })
       )
     )
