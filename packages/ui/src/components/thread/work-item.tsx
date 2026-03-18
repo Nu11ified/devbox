@@ -11,6 +11,7 @@ interface WorkItemProps {
   output?: unknown;
   error?: string;
   completed: boolean;
+  nested?: boolean;
 }
 
 const categoryIcons: Record<string, typeof Terminal> = {
@@ -29,7 +30,7 @@ const categoryColors: Record<string, string> = {
   dynamic_tool_call: "text-muted-foreground/50",
 };
 
-export function WorkItem({ toolName, toolCategory, input, output, error, completed }: WorkItemProps) {
+export function WorkItem({ toolName, toolCategory, input, output, error, completed, nested }: WorkItemProps) {
   const [expanded, setExpanded] = useState(false);
   const Icon = categoryIcons[toolCategory] ?? Wrench;
   const iconColor = categoryColors[toolCategory] ?? "text-muted-foreground/50";
@@ -41,7 +42,7 @@ export function WorkItem({ toolName, toolCategory, input, output, error, complet
     : toolName;
 
   return (
-    <div className="ml-10 border rounded-lg bg-muted/5 border-border/20 overflow-hidden">
+    <div className={cn("border rounded-lg bg-muted/5 border-border/20 overflow-hidden", !nested && "ml-10")}>
       <button
         className="flex items-center gap-2 w-full px-3 py-2 text-left hover:bg-muted/10 transition-colors"
         onClick={() => setExpanded(!expanded)}

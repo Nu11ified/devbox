@@ -5,6 +5,8 @@ import { MessageBubble } from "./message-bubble";
 import { ApprovalCard } from "./approval-card";
 import { AskUserCard } from "./ask-user-card";
 import { WorkItem } from "./work-item";
+import { ToolGroup } from "./tool-group";
+import { groupTimelineItems } from "./group-timeline";
 import { Bot, CheckCircle2, Circle, Loader2, Layers, Undo2 } from "lucide-react";
 
 export interface TodoItem {
@@ -80,10 +82,12 @@ export function Timeline({ items, onApprove, onRespondToAsk, onRewind, checkpoin
     );
   }
 
+  const groupedItems = groupTimelineItems(items);
+
   return (
     <div className="flex-1 overflow-y-auto">
       <div className="max-w-3xl mx-auto px-4 py-6 space-y-4">
-        {items.map((item) => {
+        {groupedItems.map((item) => {
           switch (item.kind) {
             case "user_message": {
               // Find the checkpoint to rewind to (the one from the turn BEFORE this one).
@@ -124,6 +128,14 @@ export function Timeline({ items, onApprove, onRespondToAsk, onRewind, checkpoin
                   output={item.output}
                   error={item.error}
                   completed={item.completed ?? true}
+                />
+              );
+            case "tool_group":
+              return (
+                <ToolGroup
+                  key={item.id}
+                  items={item.groupItems ?? []}
+                  categories={item.categories ?? {}}
                 />
               );
             case "approval_request":
