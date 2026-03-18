@@ -23,6 +23,7 @@
         "redis": "^4.7.0",
         "uuid": "^11.0.0",
         "ws": "^8.18.0",
+        "zod": "^4.3.6",
       },
       "devDependencies": {
         "@types/dockerode": "^3.3.0",

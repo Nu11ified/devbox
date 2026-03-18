@@ -10,6 +10,7 @@
  * Falls back gracefully if these exports aren't available in the installed SDK version.
  */
 
+import { z } from "zod";
 import prisma from "../../db/prisma.js";
 import { CycleEngine } from "../../cycles/engine.js";
 import { getBlueprint } from "../../cycles/blueprints.js";
@@ -19,6 +20,11 @@ interface CustomToolContext {
   projectId?: string;
   userId?: string;
   workspacePath: string;
+}
+
+/** Helper to build an MCP text result */
+function textResult(text: string) {
+  return { content: [{ type: "text" as const, text }] };
 }
 
 /**
@@ -32,51 +38,49 @@ export async function createPatchworkMcpServer(
     // Dynamic import to handle SDK versions that may not export these
     const sdk = await import("@anthropic-ai/claude-agent-sdk");
     const createSdkMcpServer = (sdk as any).createSdkMcpServer;
-    const tool = (sdk as any).tool;
+    const sdkTool = (sdk as any).tool;
 
-    if (!createSdkMcpServer || !tool) {
+    if (!createSdkMcpServer || !sdkTool) {
       console.log("[custom-tools] SDK does not export createSdkMcpServer/tool, skipping custom tools");
       return undefined;
     }
 
     return createSdkMcpServer({
       tools: [
-        tool({
-          name: "patchwork_get_project",
-          description:
-            "Get information about the current Patchwork project including name, repo, branch, and status.",
-          inputSchema: { type: "object" as const, properties: {} },
-          handler: async () => {
+        // ─── Project/Thread tools ────────────────────────────────────
+
+        sdkTool(
+          "patchwork_get_project",
+          "Get information about the current Patchwork project including name, repo, branch, and status.",
+          {},
+          async () => {
             if (!ctx.projectId) {
-              return { text: "No project associated with this thread." };
+              return textResult("No project associated with this thread.");
             }
             const project = await prisma.project.findUnique({
               where: { id: ctx.projectId },
             });
             if (!project) {
-              return { text: "Project not found." };
+              return textResult("Project not found.");
             }
-            return {
-              text: JSON.stringify({
-                id: project.id,
-                name: project.name,
-                repo: project.repo,
-                branch: project.branch,
-                status: project.status,
-                workspacePath: project.workspacePath,
-              }),
-            };
+            return textResult(JSON.stringify({
+              id: project.id,
+              name: project.name,
+              repo: project.repo,
+              branch: project.branch,
+              status: project.status,
+              workspacePath: project.workspacePath,
+            }));
           },
-        }),
+        ),
 
-        tool({
-          name: "patchwork_list_threads",
-          description:
-            "List other threads in the same project. Useful for understanding related work.",
-          inputSchema: { type: "object" as const, properties: {} },
-          handler: async () => {
+        sdkTool(
+          "patchwork_list_threads",
+          "List other threads in the same project. Useful for understanding related work.",
+          {},
+          async () => {
             if (!ctx.projectId) {
-              return { text: "No project associated with this thread." };
+              return textResult("No project associated with this thread.");
             }
             const threads = await prisma.thread.findMany({
               where: { projectId: ctx.projectId, archivedAt: null },
@@ -90,18 +94,17 @@ export async function createPatchworkMcpServer(
                 updatedAt: true,
               },
             });
-            return { text: JSON.stringify(threads) };
+            return textResult(JSON.stringify(threads));
           },
-        }),
+        ),
 
-        tool({
-          name: "patchwork_list_issues",
-          description:
-            "List issues in the current project. Shows open issues that may need work.",
-          inputSchema: { type: "object" as const, properties: {} },
-          handler: async () => {
+        sdkTool(
+          "patchwork_list_issues",
+          "List issues in the current project. Shows open issues that may need work.",
+          {},
+          async () => {
             if (!ctx.projectId) {
-              return { text: "No project associated with this thread." };
+              return textResult("No project associated with this thread.");
             }
             const issues = await prisma.issue.findMany({
               where: { projectId: ctx.projectId },
@@ -117,48 +120,28 @@ export async function createPatchworkMcpServer(
                 createdAt: true,
               },
             });
-            return { text: JSON.stringify(issues) };
+            return textResult(JSON.stringify(issues));
           },
-        }),
+        ),
 
-        tool({
-          name: "patchwork_create_issue",
-          description:
-            "Create an issue in the current Patchwork project for tracking work.",
-          inputSchema: {
-            type: "object" as const,
-            properties: {
-              title: { type: "string", description: "Issue title" },
-              body: { type: "string", description: "Issue description/details" },
-              priority: {
-                type: "string",
-                enum: ["low", "medium", "high", "urgent"],
-                description: "Priority level",
-              },
-              labels: {
-                type: "array",
-                items: { type: "string" },
-                description: "Labels to apply",
-              },
-            },
-            required: ["title"],
+        sdkTool(
+          "patchwork_create_issue",
+          "Create an issue in the current Patchwork project for tracking work.",
+          {
+            title: z.string().describe("Issue title"),
+            body: z.string().optional().describe("Issue description/details"),
+            priority: z.enum(["low", "medium", "high", "urgent"]).optional().describe("Priority level"),
+            labels: z.array(z.string()).optional().describe("Labels to apply"),
           },
-          handler: async (input: {
-            title: string;
-            body?: string;
-            priority?: string;
-            labels?: string[];
-          }) => {
+          async (input: { title: string; body?: string; priority?: string; labels?: string[] }) => {
             if (!ctx.projectId) {
-              return { text: "Cannot create issue: no project associated with this thread." };
+              return textResult("Cannot create issue: no project associated with this thread.");
             }
-            // Resolve project repo for the required `repo` field
             const project = await prisma.project.findUnique({
               where: { id: ctx.projectId },
               select: { repo: true },
             });
             const priorityMap: Record<string, number> = { low: 0, medium: 1, high: 2, urgent: 3 };
-            // Generate a unique identifier (e.g., AGENT-1234)
             const shortId = Math.floor(Math.random() * 9000 + 1000);
             const issue = await prisma.issue.create({
               data: {
@@ -172,47 +155,37 @@ export async function createPatchworkMcpServer(
                 labels: input.labels ?? [],
               },
             });
-            return { text: JSON.stringify({ id: issue.id, title: issue.title, status: issue.status }) };
+            return textResult(JSON.stringify({ id: issue.id, title: issue.title, status: issue.status }));
           },
-        }),
+        ),
 
-        tool({
-          name: "patchwork_update_thread_title",
-          description:
-            "Update the title of the current thread to better reflect the work being done.",
-          inputSchema: {
-            type: "object" as const,
-            properties: {
-              title: { type: "string", description: "New thread title" },
-            },
-            required: ["title"],
+        sdkTool(
+          "patchwork_update_thread_title",
+          "Update the title of the current thread to better reflect the work being done.",
+          {
+            title: z.string().describe("New thread title"),
           },
-          handler: async (input: { title: string }) => {
+          async (input: { title: string }) => {
             await prisma.thread.update({
               where: { id: ctx.threadId },
               data: { title: input.title },
             });
-            return { text: `Thread title updated to: ${input.title}` };
+            return textResult(`Thread title updated to: ${input.title}`);
           },
-        }),
+        ),
 
-        tool({
-          name: "anki_list",
-          description:
-            "List all Anki cards for the current project (table of contents). Optionally filter by group or include stale cards.",
-          inputSchema: {
-            type: "object" as const,
-            properties: {
-              group: { type: "string", description: "Filter by group name" },
-              includeStale: {
-                type: "boolean",
-                description: "Include stale/outdated cards (default: false)",
-              },
-            },
+        // ─── Anki tools ──────────────────────────────────────────────
+
+        sdkTool(
+          "anki_list",
+          "List all Anki cards for the current project (table of contents). Optionally filter by group or include stale cards.",
+          {
+            group: z.string().optional().describe("Filter by group name"),
+            includeStale: z.boolean().optional().describe("Include stale/outdated cards (default: false)"),
           },
-          handler: async (input: { group?: string; includeStale?: boolean }) => {
+          async (input: { group?: string; includeStale?: boolean }) => {
             if (!ctx.projectId) {
-              return { text: "No project associated with this thread." };
+              return textResult("No project associated with this thread.");
             }
             const where: any = { projectId: ctx.projectId };
             if (input.group) {
@@ -243,25 +216,20 @@ export async function createPatchworkMcpServer(
             if (totalCount > 100) {
               result.truncated = true;
             }
-            return { text: JSON.stringify(result) };
+            return textResult(JSON.stringify(result));
           },
-        }),
+        ),
 
-        tool({
-          name: "anki_read",
-          description:
-            "Fetch the full contents of an Anki card by group and title. Increments the access counter.",
-          inputSchema: {
-            type: "object" as const,
-            properties: {
-              group: { type: "string", description: "Card group name" },
-              title: { type: "string", description: "Card title" },
-            },
-            required: ["group", "title"],
+        sdkTool(
+          "anki_read",
+          "Fetch the full contents of an Anki card by group and title. Increments the access counter.",
+          {
+            group: z.string().describe("Card group name"),
+            title: z.string().describe("Card title"),
           },
-          handler: async (input: { group: string; title: string }) => {
+          async (input: { group: string; title: string }) => {
             if (!ctx.projectId) {
-              return { text: "No project associated with this thread." };
+              return textResult("No project associated with this thread.");
             }
             const card = await prisma.ankiCard.findUnique({
               where: {
@@ -273,9 +241,8 @@ export async function createPatchworkMcpServer(
               },
             });
             if (!card) {
-              return { text: JSON.stringify({ error: "Card not found" }) };
+              return textResult(JSON.stringify({ error: "Card not found" }));
             }
-            // Atomically increment accessCount and update lastAccessedAt
             await prisma.ankiCard.update({
               where: { id: card.id },
               data: {
@@ -283,41 +250,23 @@ export async function createPatchworkMcpServer(
                 lastAccessedAt: new Date(),
               },
             });
-            return { text: JSON.stringify(card) };
+            return textResult(JSON.stringify(card));
           },
-        }),
+        ),
 
-        tool({
-          name: "anki_write",
-          description:
-            "Create or update an Anki card for the current project. Use this to store knowledge, decisions, or context that should persist across sessions.",
-          inputSchema: {
-            type: "object" as const,
-            properties: {
-              group: {
-                type: "string",
-                description: "Card group/category (e.g. 'architecture', 'decisions')",
-              },
-              title: { type: "string", description: "Card title" },
-              contents: { type: "string", description: "Card contents in markdown" },
-              referencedFiles: {
-                type: "array",
-                items: { type: "string" },
-                description: "File paths referenced by this card",
-              },
-            },
-            required: ["group", "title", "contents"],
+        sdkTool(
+          "anki_write",
+          "Create or update an Anki card for the current project. Use this to store knowledge, decisions, or context that should persist across sessions.",
+          {
+            group: z.string().describe("Card group/category (e.g. 'architecture', 'decisions')"),
+            title: z.string().describe("Card title"),
+            contents: z.string().describe("Card contents in markdown"),
+            referencedFiles: z.array(z.string()).optional().describe("File paths referenced by this card"),
           },
-          handler: async (input: {
-            group: string;
-            title: string;
-            contents: string;
-            referencedFiles?: string[];
-          }) => {
+          async (input: { group: string; title: string; contents: string; referencedFiles?: string[] }) => {
             if (!ctx.projectId) {
-              return { text: "No project associated with this thread." };
+              return textResult("No project associated with this thread.");
             }
-            // Normalize group: lowercase, replace non-alphanumeric with hyphens, max 50 chars
             const group = input.group
               .toLowerCase()
               .replace(/[^a-z0-9]+/g, "-")
@@ -366,31 +315,21 @@ export async function createPatchworkMcpServer(
               select: { id: true },
             });
 
-            return {
-              text: JSON.stringify({ created: !existing, cardId: card.id }),
-            };
+            return textResult(JSON.stringify({ created: !existing, cardId: card.id }));
           },
-        }),
+        ),
 
-        tool({
-          name: "anki_invalidate",
-          description:
-            "Mark an Anki card as stale/outdated with a reason. Use when you know a card's contents are no longer accurate.",
-          inputSchema: {
-            type: "object" as const,
-            properties: {
-              group: { type: "string", description: "Card group name" },
-              title: { type: "string", description: "Card title" },
-              reason: {
-                type: "string",
-                description: "Reason why the card is now stale/outdated",
-              },
-            },
-            required: ["group", "title", "reason"],
+        sdkTool(
+          "anki_invalidate",
+          "Mark an Anki card as stale/outdated with a reason. Use when you know a card's contents are no longer accurate.",
+          {
+            group: z.string().describe("Card group name"),
+            title: z.string().describe("Card title"),
+            reason: z.string().describe("Reason why the card is now stale/outdated"),
           },
-          handler: async (input: { group: string; title: string; reason: string }) => {
+          async (input: { group: string; title: string; reason: string }) => {
             if (!ctx.projectId) {
-              return { text: "No project associated with this thread." };
+              return textResult("No project associated with this thread.");
             }
             try {
               await prisma.ankiCard.update({
@@ -406,32 +345,26 @@ export async function createPatchworkMcpServer(
                   staleReason: input.reason,
                 },
               });
-              return { text: JSON.stringify({ success: true }) };
+              return textResult(JSON.stringify({ success: true }));
             } catch (err: any) {
               if (err.code === "P2025") {
-                return {
-                  text: JSON.stringify({ success: false, error: "Card not found" }),
-                };
+                return textResult(JSON.stringify({ success: false, error: "Card not found" }));
               }
               throw err;
             }
           },
-        }),
+        ),
 
-        tool({
-          name: "anki_delete",
-          description: "Permanently delete an Anki card from the current project.",
-          inputSchema: {
-            type: "object" as const,
-            properties: {
-              group: { type: "string", description: "Card group name" },
-              title: { type: "string", description: "Card title" },
-            },
-            required: ["group", "title"],
+        sdkTool(
+          "anki_delete",
+          "Permanently delete an Anki card from the current project.",
+          {
+            group: z.string().describe("Card group name"),
+            title: z.string().describe("Card title"),
           },
-          handler: async (input: { group: string; title: string }) => {
+          async (input: { group: string; title: string }) => {
             if (!ctx.projectId) {
-              return { text: "No project associated with this thread." };
+              return textResult("No project associated with this thread.");
             }
             try {
               await prisma.ankiCard.delete({
@@ -443,32 +376,28 @@ export async function createPatchworkMcpServer(
                   },
                 },
               });
-              return { text: JSON.stringify({ success: true }) };
+              return textResult(JSON.stringify({ success: true }));
             } catch (err: any) {
               if (err.code === "P2025") {
-                return { text: JSON.stringify({ success: false }) };
+                return textResult(JSON.stringify({ success: false }));
               }
               throw err;
             }
           },
-        }),
+        ),
 
         // ─── Cycle tools ─────────────────────────────────────────────
 
-        tool({
-          name: "cycle_start",
-          description: "Start a structured development cycle. Available cycles: feature-dev, debug, code-review, production-check.",
-          inputSchema: {
-            type: "object" as const,
-            properties: {
-              blueprintId: { type: "string", description: "Cycle ID to start (e.g. 'feature-dev', 'debug')" },
-            },
-            required: ["blueprintId"],
+        sdkTool(
+          "cycle_start",
+          "Start a structured development cycle. Available cycles: feature-dev, debug, code-review, production-check.",
+          {
+            blueprintId: z.string().describe("Cycle ID to start (e.g. 'feature-dev', 'debug')"),
           },
-          handler: async (input: { blueprintId: string }) => {
+          async (input: { blueprintId: string }) => {
             const blueprint = getBlueprint(input.blueprintId);
             if (!blueprint) {
-              return { text: `Unknown cycle: ${input.blueprintId}. Available: feature-dev, debug, code-review, production-check` };
+              return textResult(`Unknown cycle: ${input.blueprintId}. Available: feature-dev, debug, code-review, production-check`);
             }
 
             const engine = new CycleEngine((event) => {
@@ -477,67 +406,63 @@ export async function createPatchworkMcpServer(
 
             const run = await engine.startCycle(blueprint, ctx.threadId, ctx.workspacePath);
             const firstNode = blueprint.nodes[0];
-            return {
-              text: JSON.stringify({
-                runId: run.id,
-                cycle: blueprint.name,
-                currentPhase: firstNode.name,
-                phaseIndex: 1,
-                totalPhases: blueprint.nodes.length,
-                prompt: engine.getPhasePrompt(blueprint, 0),
-              }),
-            };
+            return textResult(JSON.stringify({
+              runId: run.id,
+              cycle: blueprint.name,
+              currentPhase: firstNode.name,
+              phaseIndex: 1,
+              totalPhases: blueprint.nodes.length,
+              prompt: engine.getPhasePrompt(blueprint, 0),
+            }));
           },
-        }),
+        ),
 
-        tool({
-          name: "cycle_status",
-          description: "Get the current status of the active development cycle for this thread.",
-          inputSchema: { type: "object" as const, properties: {} },
-          handler: async () => {
+        sdkTool(
+          "cycle_status",
+          "Get the current status of the active development cycle for this thread.",
+          {},
+          async () => {
             const run = await prisma.cycleRun.findFirst({
               where: { threadId: ctx.threadId, status: "running" },
               include: { nodeResults: { orderBy: { createdAt: "asc" } } },
             });
             if (!run) {
-              return { text: JSON.stringify({ active: false }) };
+              return textResult(JSON.stringify({ active: false }));
             }
             const blueprint = getBlueprint(run.blueprintId);
             const currentNode = blueprint?.nodes[run.currentNodeIndex];
-            return {
-              text: JSON.stringify({
-                active: true,
-                runId: run.id,
-                blueprintId: run.blueprintId,
-                cycleName: blueprint?.name,
-                currentPhase: currentNode?.name,
-                phaseIndex: run.currentNodeIndex + 1,
-                totalPhases: blueprint?.nodes.length,
-                status: run.status,
-                nodeResults: run.nodeResults.map((nr: any) => ({
-                  nodeId: nr.nodeId,
-                  status: nr.status,
-                  iterations: nr.iterations,
-                })),
-              }),
-            };
+            return textResult(JSON.stringify({
+              active: true,
+              runId: run.id,
+              blueprintId: run.blueprintId,
+              cycleName: blueprint?.name,
+              currentPhase: currentNode?.name,
+              phaseIndex: run.currentNodeIndex + 1,
+              totalPhases: blueprint?.nodes.length,
+              status: run.status,
+              nodeResults: run.nodeResults.map((nr: any) => ({
+                nodeId: nr.nodeId,
+                status: nr.status,
+                iterations: nr.iterations,
+              })),
+            }));
           },
-        }),
+        ),
 
-        tool({
-          name: "cycle_advance",
-          description: "Signal that the current agentic phase is complete and advance to the next phase. If the next phase is a deterministic gate, it runs automatically and returns the results.",
-          inputSchema: { type: "object" as const, properties: {} },
-          handler: async () => {
+        sdkTool(
+          "cycle_advance",
+          "Signal that the current agentic phase is complete and advance to the next phase. If the next phase is a deterministic gate, it runs automatically and returns the results.",
+          {},
+          async () => {
             const run = await prisma.cycleRun.findFirst({
               where: { threadId: ctx.threadId, status: "running" },
             });
             if (!run) {
-              return { text: "No active cycle to advance." };
+              return textResult("No active cycle to advance.");
             }
             const blueprint = getBlueprint(run.blueprintId);
             if (!blueprint) {
-              return { text: `Blueprint not found: ${run.blueprintId}` };
+              return textResult(`Blueprint not found: ${run.blueprintId}`);
             }
 
             const engine = new CycleEngine((event) => {
@@ -547,76 +472,66 @@ export async function createPatchworkMcpServer(
             const result = await engine.advanceAgenticNode(run.id, blueprint, ctx.workspacePath);
 
             if (result.completed) {
-              return { text: JSON.stringify({ completed: true, message: "Cycle completed successfully!" }) };
+              return textResult(JSON.stringify({ completed: true, message: "Cycle completed successfully!" }));
             }
 
             const nextNode = result.nextNode!;
 
-            // If next node is deterministic, run it automatically
             if (nextNode.type === "deterministic") {
               const nextIndex = blueprint.nodes.findIndex((n) => n.id === nextNode.id);
               const gateResult = await engine.runDeterministicNode(run.id, blueprint, nextIndex, ctx.workspacePath);
 
-              return {
-                text: JSON.stringify({
-                  phase: nextNode.name,
-                  phaseType: "deterministic",
-                  gateResults: gateResult.gateResults,
-                  passed: gateResult.passed,
-                  action: gateResult.action,
-                  fixNodeId: gateResult.fixNodeId,
-                  nextPrompt: gateResult.action === "retry" && gateResult.fixNodeId
-                    ? engine.getPhasePrompt(blueprint, blueprint.nodes.findIndex((n) => n.id === gateResult.fixNodeId))
-                    : undefined,
-                }),
-              };
+              return textResult(JSON.stringify({
+                phase: nextNode.name,
+                phaseType: "deterministic",
+                gateResults: gateResult.gateResults,
+                passed: gateResult.passed,
+                action: gateResult.action,
+                fixNodeId: gateResult.fixNodeId,
+                nextPrompt: gateResult.action === "retry" && gateResult.fixNodeId
+                  ? engine.getPhasePrompt(blueprint, blueprint.nodes.findIndex((n) => n.id === gateResult.fixNodeId))
+                  : undefined,
+              }));
             }
 
-            return {
-              text: JSON.stringify({
-                phase: nextNode.name,
-                phaseType: "agentic",
-                phaseIndex: blueprint.nodes.findIndex((n) => n.id === nextNode.id) + 1,
-                totalPhases: blueprint.nodes.length,
-                prompt: engine.getPhasePrompt(blueprint, blueprint.nodes.findIndex((n) => n.id === nextNode.id)),
-              }),
-            };
+            return textResult(JSON.stringify({
+              phase: nextNode.name,
+              phaseType: "agentic",
+              phaseIndex: blueprint.nodes.findIndex((n) => n.id === nextNode.id) + 1,
+              totalPhases: blueprint.nodes.length,
+              prompt: engine.getPhasePrompt(blueprint, blueprint.nodes.findIndex((n) => n.id === nextNode.id)),
+            }));
           },
-        }),
+        ),
 
-        tool({
-          name: "cycle_skip",
-          description: "Skip a pending phase in the current cycle. Use for small/routine tasks that don't need full cycle phases.",
-          inputSchema: {
-            type: "object" as const,
-            properties: {
-              nodeId: { type: "string", description: "ID of the node/phase to skip" },
-              reason: { type: "string", description: "Brief reason for skipping" },
-            },
-            required: ["nodeId", "reason"],
+        sdkTool(
+          "cycle_skip",
+          "Skip a pending phase in the current cycle. Use for small/routine tasks that don't need full cycle phases.",
+          {
+            nodeId: z.string().describe("ID of the node/phase to skip"),
+            reason: z.string().describe("Brief reason for skipping"),
           },
-          handler: async (input: { nodeId: string; reason: string }) => {
+          async (input: { nodeId: string; reason: string }) => {
             const run = await prisma.cycleRun.findFirst({
               where: { threadId: ctx.threadId, status: "running" },
               include: { nodeResults: true },
             });
             if (!run) {
-              return { text: "No active cycle." };
+              return textResult("No active cycle.");
             }
             const blueprint = getBlueprint(run.blueprintId);
             if (!blueprint) {
-              return { text: `Blueprint not found: ${run.blueprintId}` };
+              return textResult(`Blueprint not found: ${run.blueprintId}`);
             }
 
             const nodeIndex = blueprint.nodes.findIndex((n) => n.id === input.nodeId);
             if (nodeIndex < 0) {
-              return { text: `Node not found: ${input.nodeId}` };
+              return textResult(`Node not found: ${input.nodeId}`);
             }
             if (nodeIndex < run.currentNodeIndex) {
-              return { text: `Cannot skip: node ${input.nodeId} is already past.` };
+              return textResult(`Cannot skip: node ${input.nodeId} is already past.`);
             }
 
-            // Mark node as skipped
             const nodeResult = (run.nodeResults as any[]).find((nr: any) => nr.nodeId === input.nodeId);
             if (nodeResult) {
               await prisma.cycleNodeResult.update({
@@ -625,16 +540,14 @@ export async function createPatchworkMcpServer(
               });
             }
 
-            // If skipping the current node, advance the index
             if (nodeIndex === run.currentNodeIndex) {
               const nextIndex = run.currentNodeIndex + 1;
               if (nextIndex >= blueprint.nodes.length) {
-                // Skipping the last node completes the cycle
                 const engine = new CycleEngine((event) => {
                   console.log(`[cycle] ${event.type}`, JSON.stringify(event));
                 });
                 await engine.completeCycle(run.id);
-                return { text: JSON.stringify({ skipped: true, nodeId: input.nodeId, reason: input.reason, completed: true }) };
+                return textResult(JSON.stringify({ skipped: true, nodeId: input.nodeId, reason: input.reason, completed: true }));
               }
               await prisma.cycleRun.update({
                 where: { id: run.id },
@@ -642,9 +555,9 @@ export async function createPatchworkMcpServer(
               });
             }
 
-            return { text: JSON.stringify({ skipped: true, nodeId: input.nodeId, reason: input.reason }) };
+            return textResult(JSON.stringify({ skipped: true, nodeId: input.nodeId, reason: input.reason }));
           },
-        }),
+        ),
       ],
     });
   } catch (err: any) {
