@@ -77,22 +77,22 @@ New Prisma model:
 
 ```prisma
 model AnkiCard {
-  id                String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  projectId         String   @db.Uuid
-  project           Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  group             String   @db.VarChar(50)
-  title             String   @db.VarChar(200)
+  id                String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  projectId         String    @map("project_id") @db.Uuid
+  project           Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  group             String    @db.VarChar(50)
+  title             String    @db.VarChar(200)
   contents          String
-  referencedFiles   String[]
-  accessCount       Int      @default(0)
-  lastAccessedAt    DateTime?
-  stale             Boolean  @default(false)
-  staleReason       String?
-  lastVerifiedAt    DateTime @default(now())
-  createdByThreadId String?  @db.Uuid
-  updatedByThreadId String?  @db.Uuid
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+  referencedFiles   String[]  @map("referenced_files")
+  accessCount       Int       @default(0) @map("access_count")
+  lastAccessedAt    DateTime? @map("last_accessed_at") @db.Timestamptz
+  stale             Boolean   @default(false)
+  staleReason       String?   @map("stale_reason")
+  lastVerifiedAt    DateTime  @default(now()) @map("last_verified_at") @db.Timestamptz
+  createdByThreadId String?   @map("created_by_thread_id") @db.Uuid
+  updatedByThreadId String?   @map("updated_by_thread_id") @db.Uuid
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt         DateTime  @updatedAt @map("updated_at") @db.Timestamptz
 
   @@unique([projectId, group, title])
   @@index([projectId])
@@ -125,6 +125,8 @@ Runs at **thread start** (during session initialization). Uses a batched approac
 
 This is O(1) git invocations regardless of card count, plus O(cards × referencedFiles) set lookups in memory.
 
+**Fallback**: If the workspace is not a git repository or doesn't exist, skip staleness detection entirely. Cards remain in their current state until next check.
+
 ### Auto-Cleanup
 
 During the same thread-start check:
@@ -140,10 +142,10 @@ Exposed via the existing Patchwork MCP server (`custom-tools.ts`):
 
 #### `anki_list` — Table of Contents
 ```
-Input:  { group?: string }
-Output: [{ group, title, accessCount, stale, staleReason }]
+Input:  { group?: string, includeStale?: boolean (default true) }
+Output: [{ group, title, accessCount, lastAccessedAt, stale, staleReason }]
 ```
-Sorted by accessCount descending. No card contents — just the index.
+Sorted by accessCount descending. No card contents — just the index. Capped at **100 cards** in the response; if more exist, includes a `truncated: true` flag and `totalCount` so the agent knows there are more.
 
 #### `anki_read` — Fetch Card Contents
 ```
@@ -158,7 +160,7 @@ Side effect: atomically increments `accessCount` via Prisma `{ increment: 1 }` a
 Input:  { group: string, title: string, contents: string, referencedFiles?: string[] }
 Output: { created: boolean, cardId: string }
 ```
-Upserts by (projectId, group, title). Resets `stale` to false, `lastVerifiedAt` to now.
+Upserts by (projectId, group, title). Resets `stale` to false, `lastVerifiedAt` to now. On update, `accessCount` is preserved (not reset).
 
 #### `anki_invalidate` — Mark Card Stale
 ```
@@ -178,7 +180,7 @@ Hard delete from DB.
 ### Input Validation
 
 Applied in both MCP tool handlers and REST API endpoints:
-- `group`: required, max 50 characters, alphanumeric + hyphens
+- `group`: required, max 50 characters, lowercase alphanumeric + hyphens (normalized to lowercase on write)
 - `title`: required, max 200 characters
 - `contents`: required, max 10,000 characters
 - `referencedFiles`: optional, max 20 entries, each max 500 characters
@@ -220,6 +222,7 @@ When writing cards:
 - ~30 cards: 50-80 tokens for the TOC. Negligible.
 - ~100 cards: under 300 tokens. Still minimal.
 - Card contents loaded on-demand via `anki_read` — only what's needed enters context.
+- **TOC cap**: The system prompt injects at most 50 cards (top by accessCount). If more exist, a note says "and N more — use `anki_list` to see all." This bounds worst-case token cost to ~200 tokens regardless of total card count.
 
 ### In-Thread Caching
 The LLM's context window IS the cache. Once `anki_read` is called, the content persists in context. If compaction summarizes it away, the agent can re-read (access count increments again, reflecting actual usage).
@@ -234,7 +237,7 @@ PUT    /api/projects/:projectId/anki/:cardId   → update card
 DELETE /api/projects/:projectId/anki/:cardId   → delete card
 ```
 
-New router: `packages/server/src/api/anki.ts`. Same auth/tenant middleware as existing routes.
+New router: `packages/server/src/api/anki.ts`. Same auth/tenant middleware as existing routes. The list endpoint supports `?group=<name>` and `?stale=true|false` query parameters for filtering.
 
 ### UI: Anki Management Panel
 
@@ -258,10 +261,9 @@ New router: `packages/server/src/api/anki.ts`. Same auth/tenant middleware as ex
 |------|--------|
 | `packages/server/prisma/schema.prisma` | Add `AnkiCard` model, relation to `Project` |
 | `packages/server/src/api/anki.ts` | **New** — REST endpoints for CRUD |
-| `packages/server/src/api/index.ts` | Mount anki router |
+| `packages/server/src/index.ts` | Mount anki router |
 | `packages/server/src/providers/claude-code/custom-tools.ts` | Add `anki_list`, `anki_read`, `anki_write`, `anki_invalidate`, `anki_delete` tools |
-| `packages/server/src/providers/claude-code/adapter.ts` | Inject Anki TOC into system prompt, run staleness check at session start |
-| `packages/server/src/providers/service.ts` | Add staleness check + auto-cleanup during thread creation |
+| `packages/server/src/providers/claude-code/adapter.ts` | Inject Anki TOC into system prompt, run staleness check + auto-cleanup at query start (before building system prompt) |
 | `packages/ui/src/app/projects/[projectId]/anki/page.tsx` | **New** — Anki management page |
 | `packages/ui/src/components/anki/card-index.tsx` | **New** — Card index panel |
 | `packages/ui/src/components/anki/card-detail.tsx` | **New** — Card detail/edit panel |
