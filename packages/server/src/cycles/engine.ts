@@ -85,13 +85,17 @@ export class CycleEngine {
 
     const currentNode = blueprint.nodes[run.currentNodeIndex];
 
-    // Mark current node as passed
-    await prisma.cycleNodeResult.update({
-      where: { id: runId }, // simplified — real impl uses composite lookup
-      data: { status: "passed", completedAt: new Date() },
-    }).catch(() => {
-      // update by run+nodeId not available in simplified mock, OK in tests
-    });
+    // Mark current node as passed — find by cycleRunId + nodeId
+    const currentNodeResult = await prisma.cycleNodeResult.findMany({
+      where: { cycleRunId: runId },
+    }).then((results: any[]) => results.find((r: any) => r.nodeId === currentNode.id));
+
+    if (currentNodeResult) {
+      await prisma.cycleNodeResult.update({
+        where: { id: currentNodeResult.id },
+        data: { status: "passed", completedAt: new Date() },
+      });
+    }
 
     this.emitFn({
       type: "phase.completed",
@@ -188,10 +192,11 @@ export class CycleEngine {
     );
 
     // Emit gate.result for each result
-    for (const result of results) {
+    for (let i = 0; i < results.length; i++) {
+      const result = results[i];
       this.emitFn({
         type: "gate.result",
-        checkType: node.gate.checks[0]?.type ?? "unknown",
+        checkType: node.gate.checks[i]?.type ?? "unknown",
         passed: result.passed,
         summary: result.summary,
         details: result.details,
@@ -203,11 +208,17 @@ export class CycleEngine {
     const allPassed = results.every((r) => r.passed);
 
     if (allPassed) {
-      // Update node result to passed
-      await prisma.cycleNodeResult.update({
-        where: { id: runId },
-        data: { status: "passed", gateResults: results, completedAt: new Date() },
-      }).catch(() => {});
+      // Update node result to passed — find by cycleRunId + nodeId
+      const nodeResult = await prisma.cycleNodeResult.findMany({
+        where: { cycleRunId: runId },
+      }).then((nrs: any[]) => nrs.find((r: any) => r.nodeId === node.id));
+
+      if (nodeResult) {
+        await prisma.cycleNodeResult.update({
+          where: { id: nodeResult.id },
+          data: { status: "passed", gateResults: results, completedAt: new Date() },
+        });
+      }
 
       return { passed: true, action: "advance", gateResults: results };
     }
@@ -241,6 +252,14 @@ export class CycleEngine {
 
     if (currentIterations >= maxIterations) {
       return { passed: false, action: "halt", gateResults: results };
+    }
+
+    // Increment fix node iterations
+    if (fixNodeResult) {
+      await prisma.cycleNodeResult.update({
+        where: { id: (fixNodeResult as any).id },
+        data: { iterations: currentIterations + 1 },
+      });
     }
 
     return {
