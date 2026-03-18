@@ -23,6 +23,7 @@ import { ProviderAdapterRegistry, ProviderService, ClaudeCodeAdapter, CodexAdapt
 import { threadsRouter } from "./api/threads.js";
 import { pluginsRouter } from "./api/plugins.js";
 import { projectsRouter } from "./api/projects.js";
+import { ankiRouter } from "./api/anki.js";
 import { archiveRouter } from "./api/archive.js";
 import { teamsRouter } from "./api/teams.js";
 import { PluginSyncJob } from "./plugins/sync.js";
@@ -74,6 +75,7 @@ export function createApp(): { app: express.Express; providerService: ProviderSe
   app.use("/api/threads", threadsRouter(providerService, authProxy));
   app.use("/api/plugins", pluginsRouter());
   app.use("/api/projects", projectsRouter());
+  app.use("/api/projects/:projectId/anki", ankiRouter());
   app.use("/api/archive", archiveRouter);
   app.use("/api/projects/:projectId/teams", teamsRouter(providerService, authProxy));
 
