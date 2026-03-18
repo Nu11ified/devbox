@@ -25,6 +25,7 @@ import { pluginsRouter } from "./api/plugins.js";
 import { projectsRouter } from "./api/projects.js";
 import { archiveRouter } from "./api/archive.js";
 import { teamsRouter } from "./api/teams.js";
+import { cyclesRouter } from "./api/cycles.js";
 import { PluginSyncJob } from "./plugins/sync.js";
 import prisma from "./db/prisma.js";
 import { startArchiveJob } from "./orchestrator/archive-job.js";
@@ -76,6 +77,7 @@ export function createApp(): { app: express.Express; providerService: ProviderSe
   app.use("/api/projects", projectsRouter());
   app.use("/api/archive", archiveRouter);
   app.use("/api/projects/:projectId/teams", teamsRouter(providerService, authProxy));
+  app.use("/api/threads/:threadId/cycle", cyclesRouter());
 
   return { app, providerService };
 }
