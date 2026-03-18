@@ -275,6 +275,24 @@ export interface CreateTeamRequest {
   model?: string;
 }
 
+export interface AnkiCard {
+  id: string;
+  projectId: string;
+  group: string;
+  title: string;
+  contents: string;
+  referencedFiles: string[];
+  accessCount: number;
+  lastAccessedAt: string | null;
+  stale: boolean;
+  staleReason: string | null;
+  lastVerifiedAt: string;
+  createdByThreadId: string | null;
+  updatedByThreadId: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 // ── API Client ─────────────────────────────────────────────────────
 
 // API requests are proxied through Next.js rewrites (same origin, no CORS)
@@ -719,6 +737,61 @@ class PatchworkAPI {
 
   async uninstallPlugin(id: string): Promise<{ ok: boolean }> {
     return request<{ ok: boolean }>(`/api/plugins/${id}/install`, {
+      method: "DELETE",
+    });
+  }
+
+  // ── Anki Cards ───────────────────────────────────────────────────
+  async listAnkiCards(
+    projectId: string,
+    filters?: { group?: string; stale?: boolean }
+  ): Promise<AnkiCard[]> {
+    const params = new URLSearchParams();
+    if (filters?.group) params.set("group", filters.group);
+    if (filters?.stale !== undefined) params.set("stale", String(filters.stale));
+    const qs = params.toString();
+    return request<AnkiCard[]>(
+      `/api/projects/${projectId}/anki${qs ? `?${qs}` : ""}`
+    );
+  }
+
+  async getAnkiCard(projectId: string, cardId: string): Promise<AnkiCard> {
+    return request<AnkiCard>(`/api/projects/${projectId}/anki/${cardId}`);
+  }
+
+  async createAnkiCard(
+    projectId: string,
+    data: {
+      group: string;
+      title: string;
+      contents: string;
+      referencedFiles?: string[];
+    }
+  ): Promise<AnkiCard> {
+    return request<AnkiCard>(`/api/projects/${projectId}/anki`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+  }
+
+  async updateAnkiCard(
+    projectId: string,
+    cardId: string,
+    data: Partial<{
+      group: string;
+      title: string;
+      contents: string;
+      referencedFiles: string[];
+    }>
+  ): Promise<AnkiCard> {
+    return request<AnkiCard>(`/api/projects/${projectId}/anki/${cardId}`, {
+      method: "PUT",
+      body: JSON.stringify(data),
+    });
+  }
+
+  async deleteAnkiCard(projectId: string, cardId: string): Promise<void> {
+    return request<void>(`/api/projects/${projectId}/anki/${cardId}`, {
       method: "DELETE",
     });
   }

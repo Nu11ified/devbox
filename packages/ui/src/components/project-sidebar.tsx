@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { ArrowLeft, Plus, GitBranch, CircleDot, Archive, ArchiveRestore, Users } from "lucide-react";
+import { ArrowLeft, Plus, GitBranch, CircleDot, Archive, ArchiveRestore, Users, Brain } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { api, type ProjectDetail, type TeamItem } from "@/lib/api";
 import { NewTeamDialog } from "@/components/team/new-team-dialog";
@@ -71,6 +71,7 @@ export function ProjectSidebar({
     updatedAt: string;
   }>>([]);
   const [archiveLoading, setArchiveLoading] = useState(false);
+  const [ankiCount, setAnkiCount] = useState(0);
   const { pendingInputs } = usePendingInputs();
 
   useEffect(() => {
@@ -90,6 +91,7 @@ export function ProjectSidebar({
           if (!cancelled) setLoading(false);
         });
       api.listTeams(projectId).then((t) => { if (!cancelled) setTeams(t); }).catch(console.error);
+      api.listAnkiCards(projectId).then((cards) => { if (!cancelled) setAnkiCount(cards.length); }).catch(() => {});
     }
 
     fetchProject();
@@ -409,6 +411,28 @@ export function ProjectSidebar({
               </div>
             </>
           )}
+
+          {/* ── Anki Section ──────────────────────────────────── */}
+          <div className="px-2 py-1.5 mt-3">
+            <span className="text-[10px] font-mono uppercase text-zinc-600 tracking-wider">
+              Knowledge
+            </span>
+          </div>
+          <Link
+            href={`/projects/${projectId}/anki`}
+            className={cn(
+              "flex items-center gap-2 rounded-lg px-2.5 py-1.5 transition-colors min-w-0",
+              pathname === `/projects/${projectId}/anki`
+                ? "bg-zinc-800/60 text-zinc-100"
+                : "hover:bg-zinc-800/40 text-zinc-400",
+            )}
+          >
+            <Brain className="h-3.5 w-3.5 text-violet-500/60 shrink-0" />
+            <span className="text-sm truncate flex-1">Anki Cards</span>
+            {ankiCount > 0 && (
+              <span className="text-[10px] text-zinc-600 shrink-0">{ankiCount}</span>
+            )}
+          </Link>
 
           {/* ── Archive Section ───────────────────────────────── */}
           <div className="mt-3">

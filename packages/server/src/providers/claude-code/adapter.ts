@@ -28,6 +28,7 @@ import type { AdapterError } from "../types.js";
 import { classifyTool } from "./classify-tool.js";
 import { getSubagentDefinitions } from "./subagents.js";
 import { createAgentHooks } from "./hooks.js";
+import { runAnkiStalenessCheck } from "./anki-staleness.js";
 import { createPatchworkMcpServer } from "./custom-tools.js";
 import { setupWorkspaceClaudeConfig } from "./workspace-setup.js";
 
@@ -398,6 +399,68 @@ export class ClaudeCodeAdapter implements ProviderAdapterShape {
       permissionMode = "plan";
     }
 
+    // --- Anki: staleness check + TOC generation ---
+    let ankiTocSection = "";
+    if (state.session.projectId) {
+      // Run staleness check only once per session (not every turn)
+      if (!(state as any).ankiStalenessChecked) {
+        await runAnkiStalenessCheck(state.session.projectId, cwd);
+        (state as any).ankiStalenessChecked = true;
+      }
+
+      const cards = await prisma.ankiCard.findMany({
+        where: { projectId: state.session.projectId },
+        orderBy: { accessCount: "desc" },
+        take: 50,
+        select: {
+          group: true,
+          title: true,
+          accessCount: true,
+          stale: true,
+          staleReason: true,
+        },
+      });
+
+      const totalCount = await prisma.ankiCard.count({
+        where: { projectId: state.session.projectId },
+      });
+
+      if (cards.length > 0) {
+        const tocRows = cards
+          .map((c) => {
+            const status = c.stale ? `STALE: ${c.staleReason ?? "unknown"}` : "✓";
+            return `| ${c.group} | ${c.title} | ${c.accessCount} | ${status} |`;
+          })
+          .join("\n");
+
+        const truncNote = totalCount > 50 ? `\n\n*Showing top 50 of ${totalCount} cards. Use \`anki_list\` to see all.*` : "";
+
+        ankiTocSection = [
+          "",
+          "# Project Knowledge (Anki)",
+          "",
+          "You have access to a project-wide knowledge base. The current card index:",
+          "",
+          "| Group | Title | Reads | Status |",
+          "|-------|-------|-------|--------|",
+          tocRows,
+          truncNote,
+          "",
+          "Use `anki_read` to fetch any card's full contents when relevant to your task.",
+          "Use `anki_write` to record architecture decisions, debugging findings, guidance, or patterns you discover.",
+          "Use `anki_invalidate` when you discover a card's information is wrong.",
+          "Use `anki_delete` to remove cards that are no longer relevant.",
+          "",
+          "When writing cards:",
+          "- Choose a descriptive group (architecture, guidance, debugging, patterns, etc.)",
+          "- Title should be specific and searchable",
+          "- Include file paths in referencedFiles so staleness detection works",
+          "- Prefer updating an existing card over creating a near-duplicate",
+          "- After completing a significant task, consider what knowledge is worth preserving for other threads",
+        ].join("\n");
+      }
+    }
+
     // Build system prompt: threads get the Claude Code preset as-is,
     // issues get additional autonomous instructions appended
     const systemPrompt = isFullAccess
@@ -416,9 +479,15 @@ export class ClaudeCodeAdapter implements ProviderAdapterShape {
             "- Keep changes focused on the issue — don't refactor unrelated code.",
             "- If you get stuck or blocked, leave a clear TODO comment explaining the blocker and move on to what you can complete.",
             "- When done, ensure all changes are committed. Do NOT push — the system handles push and PR creation automatically.",
-          ].join("\n"),
+          ].join("\n") + ankiTocSection,
         }
-      : { type: "preset" as const, preset: "claude_code" as const };
+      : ankiTocSection
+        ? {
+            type: "preset" as const,
+            preset: "claude_code" as const,
+            append: ankiTocSection,
+          }
+        : { type: "preset" as const, preset: "claude_code" as const };
 
     const opts: Record<string, unknown> = {
       model: model ?? state.session.model ?? "claude-opus-4-6",

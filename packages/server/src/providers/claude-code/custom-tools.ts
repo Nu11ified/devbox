@@ -193,6 +193,263 @@ export async function createPatchworkMcpServer(
             return { text: `Thread title updated to: ${input.title}` };
           },
         }),
+
+        tool({
+          name: "anki_list",
+          description:
+            "List all Anki cards for the current project (table of contents). Optionally filter by group or include stale cards.",
+          inputSchema: {
+            type: "object" as const,
+            properties: {
+              group: { type: "string", description: "Filter by group name" },
+              includeStale: {
+                type: "boolean",
+                description: "Include stale/outdated cards (default: false)",
+              },
+            },
+          },
+          handler: async (input: { group?: string; includeStale?: boolean }) => {
+            if (!ctx.projectId) {
+              return { text: "No project associated with this thread." };
+            }
+            const where: any = { projectId: ctx.projectId };
+            if (input.group) {
+              where.group = input.group;
+            }
+            if (!input.includeStale) {
+              where.stale = false;
+            }
+            const [cards, totalCount] = await Promise.all([
+              prisma.ankiCard.findMany({
+                where,
+                orderBy: { accessCount: "desc" },
+                take: 100,
+                select: {
+                  id: true,
+                  group: true,
+                  title: true,
+                  stale: true,
+                  staleReason: true,
+                  accessCount: true,
+                  lastAccessedAt: true,
+                  updatedAt: true,
+                },
+              }),
+              prisma.ankiCard.count({ where }),
+            ]);
+            const result: any = { cards, totalCount };
+            if (totalCount > 100) {
+              result.truncated = true;
+            }
+            return { text: JSON.stringify(result) };
+          },
+        }),
+
+        tool({
+          name: "anki_read",
+          description:
+            "Fetch the full contents of an Anki card by group and title. Increments the access counter.",
+          inputSchema: {
+            type: "object" as const,
+            properties: {
+              group: { type: "string", description: "Card group name" },
+              title: { type: "string", description: "Card title" },
+            },
+            required: ["group", "title"],
+          },
+          handler: async (input: { group: string; title: string }) => {
+            if (!ctx.projectId) {
+              return { text: "No project associated with this thread." };
+            }
+            const card = await prisma.ankiCard.findUnique({
+              where: {
+                projectId_group_title: {
+                  projectId: ctx.projectId,
+                  group: input.group.toLowerCase(),
+                  title: input.title,
+                },
+              },
+            });
+            if (!card) {
+              return { text: JSON.stringify({ error: "Card not found" }) };
+            }
+            // Atomically increment accessCount and update lastAccessedAt
+            await prisma.ankiCard.update({
+              where: { id: card.id },
+              data: {
+                accessCount: { increment: 1 },
+                lastAccessedAt: new Date(),
+              },
+            });
+            return { text: JSON.stringify(card) };
+          },
+        }),
+
+        tool({
+          name: "anki_write",
+          description:
+            "Create or update an Anki card for the current project. Use this to store knowledge, decisions, or context that should persist across sessions.",
+          inputSchema: {
+            type: "object" as const,
+            properties: {
+              group: {
+                type: "string",
+                description: "Card group/category (e.g. 'architecture', 'decisions')",
+              },
+              title: { type: "string", description: "Card title" },
+              contents: { type: "string", description: "Card contents in markdown" },
+              referencedFiles: {
+                type: "array",
+                items: { type: "string" },
+                description: "File paths referenced by this card",
+              },
+            },
+            required: ["group", "title", "contents"],
+          },
+          handler: async (input: {
+            group: string;
+            title: string;
+            contents: string;
+            referencedFiles?: string[];
+          }) => {
+            if (!ctx.projectId) {
+              return { text: "No project associated with this thread." };
+            }
+            // Normalize group: lowercase, replace non-alphanumeric with hyphens, max 50 chars
+            const group = input.group
+              .toLowerCase()
+              .replace(/[^a-z0-9]+/g, "-")
+              .replace(/^-+|-+$/g, "")
+              .slice(0, 50);
+            const title = input.title.slice(0, 200);
+            const contents = input.contents.slice(0, 10000);
+            const referencedFiles = (input.referencedFiles ?? []).slice(0, 20);
+
+            const existing = await prisma.ankiCard.findUnique({
+              where: {
+                projectId_group_title: {
+                  projectId: ctx.projectId,
+                  group,
+                  title,
+                },
+              },
+              select: { id: true },
+            });
+
+            const card = await prisma.ankiCard.upsert({
+              where: {
+                projectId_group_title: {
+                  projectId: ctx.projectId,
+                  group,
+                  title,
+                },
+              },
+              create: {
+                projectId: ctx.projectId,
+                group,
+                title,
+                contents,
+                referencedFiles,
+                createdByThreadId: ctx.threadId,
+                updatedByThreadId: ctx.threadId,
+              },
+              update: {
+                contents,
+                referencedFiles,
+                stale: false,
+                staleReason: null,
+                lastVerifiedAt: new Date(),
+                updatedByThreadId: ctx.threadId,
+              },
+              select: { id: true },
+            });
+
+            return {
+              text: JSON.stringify({ created: !existing, cardId: card.id }),
+            };
+          },
+        }),
+
+        tool({
+          name: "anki_invalidate",
+          description:
+            "Mark an Anki card as stale/outdated with a reason. Use when you know a card's contents are no longer accurate.",
+          inputSchema: {
+            type: "object" as const,
+            properties: {
+              group: { type: "string", description: "Card group name" },
+              title: { type: "string", description: "Card title" },
+              reason: {
+                type: "string",
+                description: "Reason why the card is now stale/outdated",
+              },
+            },
+            required: ["group", "title", "reason"],
+          },
+          handler: async (input: { group: string; title: string; reason: string }) => {
+            if (!ctx.projectId) {
+              return { text: "No project associated with this thread." };
+            }
+            try {
+              await prisma.ankiCard.update({
+                where: {
+                  projectId_group_title: {
+                    projectId: ctx.projectId,
+                    group: input.group,
+                    title: input.title,
+                  },
+                },
+                data: {
+                  stale: true,
+                  staleReason: input.reason,
+                },
+              });
+              return { text: JSON.stringify({ success: true }) };
+            } catch (err: any) {
+              if (err.code === "P2025") {
+                return {
+                  text: JSON.stringify({ success: false, error: "Card not found" }),
+                };
+              }
+              throw err;
+            }
+          },
+        }),
+
+        tool({
+          name: "anki_delete",
+          description: "Permanently delete an Anki card from the current project.",
+          inputSchema: {
+            type: "object" as const,
+            properties: {
+              group: { type: "string", description: "Card group name" },
+              title: { type: "string", description: "Card title" },
+            },
+            required: ["group", "title"],
+          },
+          handler: async (input: { group: string; title: string }) => {
+            if (!ctx.projectId) {
+              return { text: "No project associated with this thread." };
+            }
+            try {
+              await prisma.ankiCard.delete({
+                where: {
+                  projectId_group_title: {
+                    projectId: ctx.projectId,
+                    group: input.group,
+                    title: input.title,
+                  },
+                },
+              });
+              return { text: JSON.stringify({ success: true }) };
+            } catch (err: any) {
+              if (err.code === "P2025") {
+                return { text: JSON.stringify({ success: false }) };
+              }
+              throw err;
+            }
+          },
+        }),
       ],
     });
   } catch (err: any) {

@@ -222,10 +222,11 @@ model Project {
   createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt     DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  user    User     @relation(fields: [userId], references: [id])
-  threads Thread[]
-  issues  Issue[]
-  teams   Team[]
+  user      User       @relation(fields: [userId], references: [id])
+  threads   Thread[]
+  issues    Issue[]
+  teams     Team[]
+  ankiCards AnkiCard[]
 
   @@index([userId])
   @@map("projects")
@@ -478,4 +479,30 @@ model InstalledPlugin {
 
   @@unique([userId, pluginId])
   @@map("installed_plugins")
+}
+
+// ─── Anki card memory system ────────────────────────────────────
+
+model AnkiCard {
+  id                String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  projectId         String    @map("project_id") @db.Uuid
+  project           Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  group             String    @db.VarChar(50)
+  title             String    @db.VarChar(200)
+  contents          String
+  referencedFiles   String[]  @map("referenced_files")
+  accessCount       Int       @default(0) @map("access_count")
+  lastAccessedAt    DateTime? @map("last_accessed_at") @db.Timestamptz
+  stale             Boolean   @default(false)
+  staleReason       String?   @map("stale_reason")
+  lastVerifiedAt    DateTime  @default(now()) @map("last_verified_at") @db.Timestamptz
+  createdByThreadId String?   @map("created_by_thread_id") @db.Uuid
+  updatedByThreadId String?   @map("updated_by_thread_id") @db.Uuid
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt         DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+
+  @@unique([projectId, group, title])
+  @@index([projectId])
+  @@index([projectId, stale])
+  @@map("anki_card")
 }
