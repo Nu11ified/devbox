@@ -216,7 +216,7 @@ export class CycleEngine {
       if (nodeResult) {
         await prisma.cycleNodeResult.update({
           where: { id: nodeResult.id },
-          data: { status: "passed", gateResults: results, completedAt: new Date() },
+          data: { status: "passed", gateResults: JSON.parse(JSON.stringify(results)), completedAt: new Date() },
         });
       }
 
@@ -276,7 +276,7 @@ export class CycleEngine {
    */
   shouldSkip(node: BlueprintNode, skipCtx: SkipContext): boolean {
     if (!node.skipCondition) return false;
-    return !!(skipCtx as Record<string, boolean>)[node.skipCondition];
+    return !!(skipCtx as unknown as Record<string, boolean>)[node.skipCondition];
   }
 
   /**
