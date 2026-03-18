@@ -28,6 +28,7 @@ import type { AdapterError } from "../types.js";
 import { classifyTool } from "./classify-tool.js";
 import { getSubagentDefinitions } from "./subagents.js";
 import { createAgentHooks } from "./hooks.js";
+import { getBlueprint } from "../../cycles/blueprints.js";
 import { createPatchworkMcpServer } from "./custom-tools.js";
 import { setupWorkspaceClaudeConfig } from "./workspace-setup.js";
 
@@ -398,7 +399,68 @@ export class ClaudeCodeAdapter implements ProviderAdapterShape {
       permissionMode = "plan";
     }
 
-    // Build system prompt: threads get the Claude Code preset as-is,
+    // --- Cycle awareness ---
+    // Check for active cycle and build phase-specific prompt injection
+    let cyclePromptSection = "";
+
+    // Always include available cycles section
+    cyclePromptSection += [
+      "",
+      "# Development Cycles",
+      "",
+      "You have access to structured development cycles that enforce quality gates.",
+      "When a task matches a cycle, announce it and activate it using the `cycle_start` tool.",
+      "",
+      "Available cycles:",
+      "- **feature-dev**: New features, enhancements, refactors",
+      "- **debug**: Bug fixes, error investigation",
+      "- **code-review**: Review existing code/PR",
+      "- **production-check**: Pre-deploy verification",
+      "",
+      "When activating a cycle, use `cycle_start` with the cycle ID.",
+      "For small/routine tasks, you may skip spec and plan phases via `cycle_skip`.",
+    ].join("\n");
+
+    // Check for active cycle and add phase-specific prompt
+    try {
+      const activeCycle = await prisma.cycleRun.findFirst({
+        where: { threadId, status: "running" },
+      });
+      if (activeCycle) {
+        const blueprint = getBlueprint(activeCycle.blueprintId);
+        if (blueprint) {
+          const currentNode = blueprint.nodes[activeCycle.currentNodeIndex];
+          if (currentNode) {
+            const phasePrompt = currentNode.prompt || `Execute the "${currentNode.name}" phase.`;
+            const phaseProgress = blueprint.nodes
+              .map((n, i) => {
+                if (i < activeCycle.currentNodeIndex) return `✓ ${n.name}`;
+                if (i === activeCycle.currentNodeIndex) return `● ${n.name} (current)`;
+                return `○ ${n.name}`;
+              })
+              .join(" → ");
+
+            cyclePromptSection += [
+              "",
+              "",
+              `## Active Cycle: ${blueprint.name}`,
+              "",
+              `Progress: ${phaseProgress}`,
+              "",
+              `### Current Phase: ${currentNode.name} (${activeCycle.currentNodeIndex + 1}/${blueprint.nodes.length})`,
+              "",
+              phasePrompt,
+              "",
+              "Use `cycle_advance` when this phase is complete.",
+            ].join("\n");
+          }
+        }
+      }
+    } catch {
+      // Non-fatal — proceed without cycle prompt
+    }
+
+    // Build system prompt: threads get the Claude Code preset with cycle info,
     // issues get additional autonomous instructions appended
     const systemPrompt = isFullAccess
       ? {
@@ -416,9 +478,13 @@ export class ClaudeCodeAdapter implements ProviderAdapterShape {
             "- Keep changes focused on the issue — don't refactor unrelated code.",
             "- If you get stuck or blocked, leave a clear TODO comment explaining the blocker and move on to what you can complete.",
             "- When done, ensure all changes are committed. Do NOT push — the system handles push and PR creation automatically.",
-          ].join("\n"),
+          ].join("\n") + cyclePromptSection,
         }
-      : { type: "preset" as const, preset: "claude_code" as const };
+      : {
+          type: "preset" as const,
+          preset: "claude_code" as const,
+          append: cyclePromptSection || undefined,
+        };
 
     const opts: Record<string, unknown> = {
       model: model ?? state.session.model ?? "claude-opus-4-6",
