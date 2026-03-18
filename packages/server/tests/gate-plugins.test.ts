@@ -7,6 +7,7 @@ vi.mock("node:fs", () => ({
 
 import { existsSync } from "node:fs";
 import { typescriptPlugin } from "../src/cycles/plugins/typescript.js";
+import { registerPlugin, getPlugin, detectLanguage } from "../src/cycles/plugins/index.js";
 
 describe("TypeScript Gate Plugin", () => {
   beforeEach(() => {
@@ -109,5 +110,29 @@ describe("TypeScript Gate Plugin", () => {
       expect(result.passed).toBe(false);
       expect(result.errorCount).toBe(2);
     });
+  });
+});
+
+describe("Plugin Registry", () => {
+  it("registers and retrieves a plugin by language", () => {
+    const plugin = getPlugin("typescript");
+    expect(plugin).toBeDefined();
+    expect(plugin!.language).toBe("typescript");
+  });
+
+  it("returns undefined for unknown language", () => {
+    expect(getPlugin("cobol")).toBeUndefined();
+  });
+
+  it("detects language from workspace", async () => {
+    vi.mocked(existsSync).mockReturnValue(true);
+    const lang = await detectLanguage("/workspace");
+    expect(lang).toBe("typescript");
+  });
+
+  it("returns undefined when no language detected", async () => {
+    vi.mocked(existsSync).mockReturnValue(false);
+    const lang = await detectLanguage("/workspace");
+    expect(lang).toBeUndefined();
   });
 });
