@@ -5,6 +5,9 @@ import type { Express } from "express";
 
 vi.mock("../src/db/prisma.js", () => ({
   default: {
+    thread: {
+      findFirst: vi.fn().mockResolvedValue({ id: "thread-1", userId: "user-1" }),
+    },
     cycleRun: {
       findFirst: vi.fn().mockResolvedValue(null),
       findMany: vi.fn().mockResolvedValue([]),
@@ -36,11 +39,24 @@ describe("Cycles API", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(prisma.thread.findFirst).mockResolvedValue({ id: "thread-1", userId: "user-1" } as any);
     app = buildApp("user-1");
   });
 
   describe("GET /api/threads/:threadId/cycle", () => {
     it("returns 404 when no active cycle", async () => {
+      const res = await request(app).get("/api/threads/thread-1/cycle");
+      expect(res.status).toBe(404);
+    });
+
+    it("returns 401 without auth", async () => {
+      const noAuthApp = buildApp();
+      const res = await request(noAuthApp).get("/api/threads/thread-1/cycle");
+      expect(res.status).toBe(401);
+    });
+
+    it("returns 404 for thread not owned by user", async () => {
+      vi.mocked(prisma.thread.findFirst).mockResolvedValueOnce(null);
       const res = await request(app).get("/api/threads/thread-1/cycle");
       expect(res.status).toBe(404);
     });

@@ -98,6 +98,12 @@ describe("CycleEngine", () => {
       const result = await engine.runDeterministicNode("run-1", simpleBp, 1, "/workspace");
       expect(result.passed).toBe(true);
       expect(runGateChecks).toHaveBeenCalled();
+      // Verify currentNodeIndex was advanced past the deterministic node
+      expect(prisma.cycleRun.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ currentNodeIndex: 2 }),
+        })
+      );
     });
 
     it("triggers fix loop on gate failure with retry", async () => {

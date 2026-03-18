@@ -220,6 +220,17 @@ export class CycleEngine {
         });
       }
 
+      // Advance currentNodeIndex past the deterministic node
+      const nextIndex = nodeIndex + 1;
+      if (nextIndex >= blueprint.nodes.length) {
+        await this.completeCycle(runId);
+      } else {
+        await prisma.cycleRun.update({
+          where: { id: runId },
+          data: { currentNodeIndex: nextIndex },
+        });
+      }
+
       return { passed: true, action: "advance", gateResults: results };
     }
 

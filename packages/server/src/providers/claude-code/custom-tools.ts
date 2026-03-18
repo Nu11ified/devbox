@@ -239,7 +239,7 @@ export async function createPatchworkMcpServer(
           handler: async () => {
             const run = await prisma.cycleRun.findFirst({
               where: { threadId: ctx.threadId, status: "running" },
-              include: { nodeResults: { orderBy: { startedAt: "asc" } } },
+              include: { nodeResults: { orderBy: { createdAt: "asc" } } },
             });
             if (!run) {
               return { text: JSON.stringify({ active: false }) };
@@ -369,9 +369,18 @@ export async function createPatchworkMcpServer(
 
             // If skipping the current node, advance the index
             if (nodeIndex === run.currentNodeIndex) {
+              const nextIndex = run.currentNodeIndex + 1;
+              if (nextIndex >= blueprint.nodes.length) {
+                // Skipping the last node completes the cycle
+                const engine = new CycleEngine((event) => {
+                  console.log(`[cycle] ${event.type}`, JSON.stringify(event));
+                });
+                await engine.completeCycle(run.id);
+                return { text: JSON.stringify({ skipped: true, nodeId: input.nodeId, reason: input.reason, completed: true }) };
+              }
               await prisma.cycleRun.update({
                 where: { id: run.id },
-                data: { currentNodeIndex: run.currentNodeIndex + 1 },
+                data: { currentNodeIndex: nextIndex },
               });
             }
 
