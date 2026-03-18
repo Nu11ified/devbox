@@ -8,6 +8,8 @@
 
 import type { ProviderEventEnvelope } from "../events.js";
 import type { ThreadId, TurnId } from "../types.js";
+import prisma from "../../db/prisma.js";
+import { getBlueprint } from "../../cycles/blueprints.js";
 
 /** Dangerous shell patterns that should be blocked or flagged. */
 const DANGEROUS_PATTERNS = [
@@ -110,6 +112,68 @@ export function createAgentHooks(ctx: HookContext) {
         }
 
         // Allow all other tool uses
+        return {};
+      },
+
+      // Cycle gate enforcement: block git commit when gates haven't passed
+      async (event: { tool_name: string; tool_input: Record<string, any> }) => {
+        const { tool_name, tool_input } = event;
+
+        // Only check Bash commands containing "git commit"
+        if (tool_name !== "Bash" || typeof tool_input.command !== "string") {
+          return {};
+        }
+        if (!tool_input.command.match(/git\s+commit/)) {
+          return {};
+        }
+
+        // Check for active cycle on this thread
+        try {
+          const activeCycle = await prisma.cycleRun.findFirst({
+            where: { threadId: ctx.threadId, status: "running" },
+            include: { nodeResults: true },
+          });
+
+          if (!activeCycle) {
+            return {}; // No active cycle — allow commit
+          }
+
+          const blueprint = getBlueprint(activeCycle.blueprintId);
+          if (!blueprint) {
+            return {}; // Blueprint not found — allow commit
+          }
+
+          // Check if all deterministic gate nodes before the current position have passed
+          const gateNodes = blueprint.nodes
+            .slice(0, activeCycle.currentNodeIndex)
+            .filter((n) => n.type === "deterministic" && n.gate);
+
+          const nodeResults = activeCycle.nodeResults as any[];
+          const ungatedNodes = gateNodes.filter((gateNode) => {
+            const result = nodeResults.find((nr: any) => nr.nodeId === gateNode.id);
+            return !result || result.status !== "passed";
+          });
+
+          if (ungatedNodes.length > 0) {
+            const currentNode = blueprint.nodes[activeCycle.currentNodeIndex];
+            const ungatedNames = ungatedNodes.map((n) => n.name).join(", ");
+
+            console.warn(
+              `[hooks] BLOCKED commit: cycle gates not passed (${ungatedNames}) thread=${ctx.threadId}`
+            );
+
+            return {
+              hookSpecificOutput: {
+                permissionDecision: "deny",
+                reason: `Cannot commit — cycle gates not yet passed: ${ungatedNames}. Current phase: ${currentNode?.name ?? "unknown"}. Use cycle_advance to progress through remaining phases.`,
+              },
+            };
+          }
+        } catch (err) {
+          // Non-fatal — if we can't check, allow the commit
+          console.warn(`[hooks] Cycle gate check failed, allowing commit: ${err}`);
+        }
+
         return {};
       },
     ],
