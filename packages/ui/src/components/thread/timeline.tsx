@@ -15,7 +15,7 @@ export interface TodoItem {
 
 export interface TimelineItem {
   id: string;
-  kind: "user_message" | "assistant_text" | "work_item" | "approval_request" | "error" | "todo_progress" | "ask_user" | "context_compacted";
+  kind: "user_message" | "assistant_text" | "work_item" | "approval_request" | "error" | "todo_progress" | "ask_user" | "context_compacted" | "tool_group";
   content?: string;
   streaming?: boolean;
   toolName?: string;
@@ -35,6 +35,10 @@ export interface TimelineItem {
   options?: Array<{ label: string; value: string }>;
   /** Turn this item belongs to (for rewind) */
   turnId?: string;
+  /** Tool group children */
+  groupItems?: TimelineItem[];
+  /** Category counts for tool group summary */
+  categories?: Record<string, number>;
 }
 
 export interface CheckpointEntry {
