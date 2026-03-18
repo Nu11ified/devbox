@@ -62,8 +62,9 @@ interface BlueprintNode {
   prompt?: string;               // system prompt fragment for agentic nodes
   tools?: string[];              // restrict available tools for this phase
   gate?: Gate;                   // must pass before advancing
-  maxIterations?: number;        // max retry loops (default 1, e.g. 2 for fix-ci)
-  skipCondition?: string;        // expression to skip this node (e.g. "isSmallTask")
+  maxIterations?: number;        // max fix-loop cycles (default 1, e.g. 2 for fix-ci). One "cycle" = Fix → re-run all gates.
+  retryFromNodeId?: string;      // on fix loop, jump back to this node instead of re-running current. Required when maxIterations > 1.
+  skipCondition?: string;        // predefined flag name to skip this node (see Skip Conditions below)
 }
 
 interface Gate {
@@ -77,6 +78,43 @@ interface GateCheck {
   language: string;              // gate plugin to use (e.g. "typescript")
 }
 ```
+
+### Fix Loop Routing
+
+When a gate fails with `onFail: "retry"`, the engine needs to know how to loop. The mechanism:
+
+1. The gate-bearing deterministic node (e.g., "Run Tests") fails
+2. The engine advances to the next node, which must be the Fix node (type: `agentic`, `maxIterations > 0`)
+3. After the Fix node completes (`cycle_advance`), the engine jumps back to the node specified by `retryFromNodeId` (e.g., "typecheck") and re-runs from there through the gate node
+4. If the gate passes, the engine skips the Fix node and advances past it
+5. If the gate fails again and iterations < maxIterations, repeat from step 2
+6. If iterations >= maxIterations, the cycle halts with `status: "gate_failed"`
+
+The `retryFromNodeId` field on Fix nodes makes the loop explicit. In the hardcoded feature-dev cycle, the Fix node has `retryFromNodeId: "typecheck"`, so a test failure triggers: Fix → Typecheck → Lint → Run Tests → (pass or retry).
+
+`maxIterations` counts full loop cycles (Fix → gate re-run), not individual node executions. So `maxIterations: 2` means 2 fix attempts. Including the initial failure, the gate runs at most 3 times total.
+
+### Skip Conditions
+
+`skipCondition` references a predefined boolean flag name, not an arbitrary expression. The engine evaluates flags from the cycle's runtime context:
+
+| Flag | True When |
+|------|-----------|
+| `isSmallTask` | Issue has "small" or "trivial" label, OR prompt is under 200 characters with no spec-like requirements |
+| `isAutonomous` | Thread is autonomous (board issue dispatch, full-access mode) |
+| `hasExistingTests` | Workspace has test files matching the affected source files |
+| `hasPrDiff` | Thread has a PR diff available for review |
+
+Custom cycles can only reference these predefined flags. No arbitrary expression evaluation — this keeps the system simple and secure.
+
+### Relationship to Existing Run/RunStep Models
+
+The database already has `Run` and `RunStep` models (in `prisma/schema.prisma`) from an earlier pipeline system. These are **separate concepts**:
+
+- `Run` is a standalone pipeline execution tied to a repo/branch/devbox — it predates the thread-based session model and is used by the legacy blueprint engine in `packages/server/src/blueprints/`.
+- `CycleRun` is a thread-scoped development cycle integrated with the agent session, MCP tools, and real-time event streaming.
+
+These two systems coexist. `CycleRun` does not replace `Run` — they serve different purposes. The legacy `Run` system may be deprecated in the future, but that is out of scope for this spec.
 
 ### Cycle Run (Persisted State)
 
@@ -232,7 +270,7 @@ One file, register in plugin array.
 | **Typecheck** | deterministic | must pass | Runs language gate typecheck. |
 | **Lint** | deterministic | must pass | Runs language gate lint. Auto-fixes applied. |
 | **Run Tests** | deterministic | must pass, on fail → retry via Fix | Runs language gate test. |
-| **Fix** | agentic | loops back to Typecheck, max 2 | If still failing after 2 rounds, status = gate_failed, notify user. |
+| **Fix** | agentic | loops back to Typecheck (`retryFromNodeId: "typecheck"`), max 2 attempts | If still failing after 2 fix attempts, status = gate_failed, notify user. |
 | **Review** | agentic | none | Self-review + optional subagent dispatch for code review. |
 | **Commit/PR** | deterministic | none | Commits changes, creates PR for autonomous runs. |
 
@@ -247,7 +285,7 @@ One file, register in plugin array.
 | **Typecheck** | deterministic | must pass | |
 | **Lint** | deterministic | must pass | |
 | **Run Tests** | deterministic | must pass, on fail → Fix Loop | |
-| **Fix Loop** | agentic | loops back to Typecheck, max 2 | |
+| **Fix Loop** | agentic | loops back to Typecheck (`retryFromNodeId: "typecheck"`), max 2 attempts | |
 | **Review** | agentic | none | Verify fix is minimal, no regressions. |
 | **Commit/PR** | deterministic | none | |
 
@@ -347,16 +385,16 @@ For small/routine tasks, you may skip spec and plan phases.
 
 ### Fix Loop
 
-When `Run Tests` fails:
+When `Run Tests` fails (Fix node has `maxIterations: 2`, `retryFromNodeId: "typecheck"`):
 
 ```
-Run Tests (deterministic, fails)
-  → iteration 1: Fix (agentic) → Typecheck → Lint → Run Tests
-  → iteration 2: Fix (agentic) → Typecheck → Lint → Run Tests
-  → iteration 3: STOP. status = "gate_failed", notify user
+Run Tests (deterministic, fails) — initial failure
+  → Fix attempt 1: Fix (agentic) → jump to Typecheck → Lint → Run Tests
+  → Fix attempt 2: Fix (agentic) → jump to Typecheck → Lint → Run Tests
+  → STOP. status = "gate_failed", notify user
 ```
 
-Max 2 iterations (configurable per node via `maxIterations`). Prevents infinite retry — same principle as Stripe's "at most two CI rounds."
+`maxIterations: 2` means 2 fix attempts. The gate runs at most 3 times total (initial + 2 retries). Prevents infinite retry — same principle as Stripe's "at most two CI rounds."
 
 ### Phase Prompt Injection
 
@@ -511,7 +549,8 @@ Engine loads hardcoded cycles first, then scans this directory. Custom cycles ca
       "name": "Fix Issues",
       "type": "agentic",
       "prompt": "Fix the failing checks.",
-      "maxIterations": 2
+      "maxIterations": 2,
+      "retryFromNodeId": "typecheck"
     },
     {
       "id": "review",
