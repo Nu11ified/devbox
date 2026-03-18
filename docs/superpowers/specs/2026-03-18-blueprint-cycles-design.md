@@ -574,6 +574,8 @@ At load time:
 - Each node: `id`, `name`, `type` required
 - Deterministic nodes with gates must reference a registered language plugin
 - `maxIterations` must be 1-5
+- `retryFromNodeId` must reference a valid node ID that precedes the Fix node in the sequence
+- When a gate has `onFail: "retry"`, the immediately following node must have `retryFromNodeId` set
 - No duplicate node IDs
 - `id` must not collide with hardcoded cycle IDs
 - Invalid configs are logged and skipped
