@@ -5,6 +5,7 @@ import { MessageBubble } from "./message-bubble";
 import { ApprovalCard } from "./approval-card";
 import { AskUserCard } from "./ask-user-card";
 import { WorkItem } from "./work-item";
+import { GateResult } from "./gate-result";
 import { Bot, CheckCircle2, Circle, Loader2, Layers, Undo2 } from "lucide-react";
 
 export interface TodoItem {
@@ -15,7 +16,7 @@ export interface TodoItem {
 
 export interface TimelineItem {
   id: string;
-  kind: "user_message" | "assistant_text" | "work_item" | "approval_request" | "error" | "todo_progress" | "ask_user" | "context_compacted";
+  kind: "user_message" | "assistant_text" | "work_item" | "approval_request" | "error" | "todo_progress" | "ask_user" | "context_compacted" | "phase_transition" | "gate_result" | "cycle_summary";
   content?: string;
   streaming?: boolean;
   toolName?: string;
@@ -35,6 +36,20 @@ export interface TimelineItem {
   options?: Array<{ label: string; value: string }>;
   /** Turn this item belongs to (for rewind) */
   turnId?: string;
+  /** Gate result data */
+  checkType?: string;
+  gatePassed?: boolean;
+  gateSummary?: string;
+  gateDetails?: string;
+  gateErrorCount?: number;
+  gateWarningCount?: number;
+  /** Phase transition data */
+  phaseIndex?: number;
+  phaseTotal?: number;
+  phaseNodeType?: string;
+  /** Cycle summary data */
+  cycleDurationMs?: number;
+  cycleNodes?: Array<{ id: string; name: string; status: string }>;
 }
 
 export interface CheckpointEntry {
@@ -200,6 +215,60 @@ export function Timeline({ items, onApprove, onRespondToAsk, onRewind, checkpoin
                   </div>
                   <div className="text-sm text-red-400 bg-red-500/5 border border-red-500/20 rounded-lg px-3 py-2 font-mono flex-1">
                     {item.content}
+                  </div>
+                </div>
+              );
+            case "phase_transition":
+              return (
+                <div key={item.id} className="flex items-center gap-3 max-w-3xl mx-auto py-1">
+                  <div className="flex-1 border-t border-dashed border-violet-500/20" />
+                  <span className="text-[10px] font-mono text-violet-400/60">
+                    Phase: {item.content} ({item.phaseIndex}/{item.phaseTotal})
+                  </span>
+                  <div className="flex-1 border-t border-dashed border-violet-500/20" />
+                </div>
+              );
+            case "gate_result":
+              return (
+                <div key={item.id} className="py-1">
+                  <GateResult
+                    checkType={item.checkType ?? "unknown"}
+                    passed={item.gatePassed ?? false}
+                    summary={item.gateSummary ?? ""}
+                    details={item.gateDetails}
+                    errorCount={item.gateErrorCount}
+                    warningCount={item.gateWarningCount}
+                  />
+                </div>
+              );
+            case "cycle_summary":
+              return (
+                <div key={item.id} className="max-w-3xl mx-auto py-2">
+                  <div className="rounded border border-zinc-800 bg-zinc-900/50 px-4 py-3">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-xs font-mono text-zinc-300">{item.content}</span>
+                      {item.cycleDurationMs && (
+                        <span className="text-xs font-mono text-zinc-500">
+                          {Math.round(item.cycleDurationMs / 1000)}s
+                        </span>
+                      )}
+                    </div>
+                    {item.cycleNodes && (
+                      <div className="flex items-center gap-1">
+                        {item.cycleNodes.map((node) => (
+                          <div
+                            key={node.id}
+                            title={`${node.name}: ${node.status}`}
+                            className={`w-2 h-2 rounded-full ${
+                              node.status === "passed" ? "bg-green-500" :
+                              node.status === "failed" ? "bg-red-500" :
+                              node.status === "skipped" ? "bg-zinc-600" :
+                              "bg-zinc-700"
+                            }`}
+                          />
+                        ))}
+                      </div>
+                    )}
                   </div>
                 </div>
               );

@@ -722,6 +722,19 @@ class PatchworkAPI {
       method: "DELETE",
     });
   }
+
+  // ── Cycles API ──────────────────────────────────────────────────
+  async getCycleStatus(threadId: string): Promise<any | null> {
+    try {
+      return await request<any>(`/api/threads/${threadId}/cycle`);
+    } catch {
+      return null;
+    }
+  }
+
+  async getCycleHistory(threadId: string): Promise<any[]> {
+    return request<any[]>(`/api/threads/${threadId}/cycle/history`);
+  }
 }
 
 export const api = new PatchworkAPI();
