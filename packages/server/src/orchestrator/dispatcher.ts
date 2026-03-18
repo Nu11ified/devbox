@@ -6,6 +6,7 @@ import { commitAllChanges, pushBranch } from "../git/pr.js";
 import type { ProviderService } from "../providers/service.js";
 import { ThreadId } from "../providers/types.js";
 import { findRelevantContext } from "./context-search.js";
+import { getAllBlueprints, getBlueprint } from "../cycles/blueprints.js";
 
 /**
  * Sanitize a string for use as a git branch name.
@@ -40,6 +41,71 @@ ${issue.body}
 
 Implement this issue. Start by reading the relevant code to understand the codebase, then make the changes described above. Commit your work when complete.
 `;
+}
+
+/** Map issue labels to blueprint IDs */
+const LABEL_TO_BLUEPRINT: Record<string, string> = {
+  bug: "debug",
+  fix: "debug",
+  feature: "feature-dev",
+  enhancement: "feature-dev",
+  review: "code-review",
+  "code-review": "code-review",
+  deploy: "production-check",
+  release: "production-check",
+};
+
+/**
+ * Detect which blueprint cycle to use based on issue labels and content.
+ * Returns a blueprintId or undefined if no match.
+ */
+function detectCycleFromIssue(issue: {
+  blueprintId?: string;
+  labels?: string[];
+  title: string;
+  body: string;
+}): string | undefined {
+  // Explicit blueprintId takes priority
+  if (issue.blueprintId && getBlueprint(issue.blueprintId)) {
+    return issue.blueprintId;
+  }
+
+  // Check labels
+  const labels = Array.isArray(issue.labels) ? issue.labels : [];
+  for (const label of labels) {
+    const normalizedLabel = String(label).toLowerCase();
+    if (LABEL_TO_BLUEPRINT[normalizedLabel]) {
+      return LABEL_TO_BLUEPRINT[normalizedLabel];
+    }
+  }
+
+  // Fall back to keyword matching on title + body
+  const text = `${issue.title} ${issue.body}`.toLowerCase();
+  for (const bp of getAllBlueprints()) {
+    for (const keyword of bp.trigger.keywords) {
+      if (text.includes(keyword.toLowerCase())) {
+        return bp.id;
+      }
+    }
+  }
+
+  return undefined;
+}
+
+/**
+ * Retrieve issue labels from the database.
+ */
+async function getIssueLabels(issueId: string): Promise<string[]> {
+  try {
+    const issue = await prisma.issue.findUnique({
+      where: { id: issueId },
+      select: { labels: true },
+    });
+    if (!issue?.labels) return [];
+    return Array.isArray(issue.labels) ? issue.labels.map(String) : [];
+  } catch {
+    return [];
+  }
 }
 
 /**
@@ -171,8 +237,26 @@ export async function dispatchIssue(
   // Update issue status to in_progress
   await updateIssue(issue.id, { status: "in_progress" });
 
+  // Detect cycle from issue labels/keywords
+  const detectedBlueprintId = detectCycleFromIssue({
+    blueprintId: issue.blueprintId,
+    labels: await getIssueLabels(issue.id),
+    title: issue.title,
+    body: issue.body,
+  });
+
+  if (detectedBlueprintId) {
+    console.log(`[dispatcher] detected cycle "${detectedBlueprintId}" for ${issue.identifier}`);
+  }
+
   // Build autonomous prompt with past context injection
   let prompt = buildAutonomousPrompt(issue);
+
+  // If a cycle was detected, instruct the agent to start it
+  if (detectedBlueprintId) {
+    prompt += `\n\n**Development Cycle:** This issue matches the "${detectedBlueprintId}" cycle. Start by running \`cycle_start\` with blueprintId "${detectedBlueprintId}" to activate structured quality gates.\n`;
+  }
+
   const pastContext = await findRelevantContext(issue.title, issue.body, issue.projectId);
   if (pastContext) {
     prompt += "\n\n" + pastContext;
