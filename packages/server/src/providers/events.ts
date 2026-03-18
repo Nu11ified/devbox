@@ -167,6 +167,56 @@ export interface ContextCompactedPayload {
   message: string;
 }
 
+export interface CycleStartedPayload {
+  blueprintId: string;
+  runId: string;
+  blueprintName: string;
+}
+
+export interface CycleCompletedPayload {
+  runId: string;
+  status: string;
+  durationMs: number;
+}
+
+export interface CycleFailedPayload {
+  runId: string;
+  nodeId: string;
+  reason: string;
+}
+
+export interface PhaseStartedPayload {
+  nodeId: string;
+  nodeName: string;
+  nodeType: string;
+  index: number;
+  total: number;
+}
+
+export interface PhaseCompletedPayload {
+  nodeId: string;
+  status: string;
+}
+
+export interface PhaseSkippedPayload {
+  nodeId: string;
+  reason: string;
+}
+
+export interface GateRunningPayload {
+  checkType: string;
+  language: string;
+}
+
+export interface GateResultPayload {
+  checkType: string;
+  passed: boolean;
+  summary: string;
+  details?: string;
+  errorCount?: number;
+  warningCount?: number;
+}
+
 // Discriminated Union
 export type ProviderRuntimeEvent =
   | { type: "session.started"; payload: SessionStartedPayload }
@@ -190,7 +240,15 @@ export type ProviderRuntimeEvent =
   | { type: "team.task.updated"; payload: TeamTaskUpdatedPayload }
   | { type: "session.resumed"; payload: SessionResumedPayload }
   | { type: "thread.status"; payload: ThreadStatusPayload }
-  | { type: "context.compacted"; payload: ContextCompactedPayload };
+  | { type: "context.compacted"; payload: ContextCompactedPayload }
+  | { type: "cycle.started"; payload: CycleStartedPayload }
+  | { type: "cycle.completed"; payload: CycleCompletedPayload }
+  | { type: "cycle.failed"; payload: CycleFailedPayload }
+  | { type: "phase.started"; payload: PhaseStartedPayload }
+  | { type: "phase.completed"; payload: PhaseCompletedPayload }
+  | { type: "phase.skipped"; payload: PhaseSkippedPayload }
+  | { type: "gate.running"; payload: GateRunningPayload }
+  | { type: "gate.result"; payload: GateResultPayload };
 
 // Envelope wrapping each event with metadata
 export interface ProviderEventEnvelope {

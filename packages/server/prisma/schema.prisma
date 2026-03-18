@@ -385,6 +385,7 @@ model Thread {
   sessions         ThreadSession[]
   turns            ThreadTurn[]
   events           ThreadEvent[]
+  cycleRuns        CycleRun[]
 
   @@index([status])
   @@index([userId])
@@ -479,6 +480,41 @@ model InstalledPlugin {
 
   @@unique([userId, pluginId])
   @@map("installed_plugins")
+}
+
+// ─── Blueprint Cycle Engine ─────────────────────────────────────
+
+model CycleRun {
+  id               String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  threadId         String            @map("thread_id") @db.Uuid
+  thread           Thread            @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  blueprintId      String            @map("blueprint_id") @db.VarChar(50)
+  currentNodeIndex Int               @default(0) @map("current_node_index")
+  status           String            @default("running") @db.VarChar(20)
+  startedAt        DateTime          @default(now()) @map("started_at") @db.Timestamptz
+  completedAt      DateTime?         @map("completed_at") @db.Timestamptz
+  nodeResults      CycleNodeResult[]
+
+  @@index([threadId])
+  @@index([status])
+  @@map("cycle_run")
+}
+
+model CycleNodeResult {
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  cycleRunId  String    @map("cycle_run_id") @db.Uuid
+  cycleRun    CycleRun  @relation(fields: [cycleRunId], references: [id], onDelete: Cascade)
+  nodeId      String    @map("node_id") @db.VarChar(50)
+  status      String    @default("pending") @db.VarChar(20)
+  iterations  Int       @default(0)
+  gateResults Json?     @map("gate_results")
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  startedAt   DateTime? @map("started_at") @db.Timestamptz
+  completedAt DateTime? @map("completed_at") @db.Timestamptz
+
+  @@unique([cycleRunId, nodeId])
+  @@index([cycleRunId])
+  @@map("cycle_node_result")
 }
 
 // ─── Anki card memory system ────────────────────────────────────

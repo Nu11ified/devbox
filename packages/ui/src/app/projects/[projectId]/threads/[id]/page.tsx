@@ -6,6 +6,7 @@ import { api } from "@/lib/api";
 import { useThreadSocket, type ThreadEvent } from "@/hooks/use-thread-socket";
 import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
 import { Timeline, type TimelineItem, type CheckpointEntry } from "@/components/thread/timeline";
+import { CycleStatusBar } from "@/components/thread/cycle-status-bar";
 import { Composer } from "@/components/thread/composer";
 import { DiffPanel } from "@/components/thread/diff-panel";
 import { TerminalDrawer, type TerminalDrawerHandle } from "@/components/thread/terminal-drawer";
@@ -37,6 +38,7 @@ export default function ProjectThreadDetailPage() {
   const [numTurns, setNumTurns] = useState<number>(0);
   const [checkpoints, setCheckpoints] = useState<CheckpointEntry[]>([]);
   const [sshHost, setSshHost] = useState<string | null>(null);
+  const [cycleData, setCycleData] = useState<any>(null);
   const terminalDrawerRef = useRef<TerminalDrawerHandle>(null);
   const assistantTextRef = useRef<string>("");
   const assistantItemIdRef = useRef<string | null>(null);
@@ -368,6 +370,77 @@ export default function ProjectThreadDetailPage() {
           setItems((prev) => [
             ...prev,
             { id: `compact-${Date.now()}`, kind: "context_compacted", content: e.payload.message },
+          ]);
+          break;
+        }
+
+        case "cycle.started": {
+          api.getCycleStatus(id).then((data) => {
+            if (data) setCycleData(data);
+          });
+          break;
+        }
+
+        case "phase.started": {
+          setCycleData((prev: any) => prev ? { ...prev, currentNodeIndex: e.payload.phaseIndex ?? prev.currentNodeIndex, status: "running" } : prev);
+          setItems((prev) => [
+            ...prev,
+            {
+              id: `phase-${Date.now()}`,
+              kind: "phase_transition" as const,
+              content: e.payload.phaseName ?? e.payload.nodeId ?? "Phase",
+              phaseIndex: e.payload.phaseIndex,
+              phaseTotal: e.payload.phaseTotal,
+              phaseNodeType: e.payload.nodeType,
+            },
+          ]);
+          break;
+        }
+
+        case "phase.completed": {
+          api.getCycleStatus(id).then((data) => {
+            if (data) setCycleData(data);
+          });
+          break;
+        }
+
+        case "gate.result": {
+          const p = e.payload;
+          setCycleData((prev: any) => prev ? { ...prev } : prev);
+          setItems((prev) => [
+            ...prev,
+            {
+              id: `gate-${Date.now()}`,
+              kind: "gate_result" as const,
+              checkType: p.checkType,
+              gatePassed: p.passed,
+              gateSummary: p.summary,
+              gateDetails: p.details,
+              gateErrorCount: p.errorCount,
+              gateWarningCount: p.warningCount,
+            },
+          ]);
+          break;
+        }
+
+        case "cycle.completed": {
+          const p = e.payload;
+          api.getCycleStatus(id).then((data) => {
+            if (data) setCycleData(data);
+          });
+          setItems((prev) => [
+            ...prev,
+            {
+              id: `cycle-done-${Date.now()}`,
+              kind: "cycle_summary" as const,
+              content: p.summary ?? "Cycle completed",
+              cycleDurationMs: p.durationMs,
+              cycleNodes: p.nodeResults?.map((nr: any) => ({
+                id: nr.nodeId,
+                name: nr.nodeId,
+                status: nr.status,
+              })),
+            },
           ]);
           break;
         }
@@ -743,6 +816,18 @@ export default function ProjectThreadDetailPage() {
       {/* Main content */}
       <div className="flex flex-1 min-h-0">
         <div className="flex flex-col flex-1 min-w-0">
+          {cycleData && (
+            <CycleStatusBar
+              blueprintName={cycleData.cycleName ?? cycleData.blueprintId}
+              nodes={cycleData.nodeResults?.map((nr: any) => ({
+                id: nr.nodeId,
+                name: nr.nodeId,
+                status: nr.status,
+              })) ?? []}
+              currentIndex={cycleData.currentNodeIndex ?? 0}
+              status={cycleData.status}
+            />
+          )}
           <Timeline
             items={items}
             onApprove={approve}
