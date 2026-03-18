@@ -11,6 +11,8 @@
  */
 
 import prisma from "../../db/prisma.js";
+import { CycleEngine } from "../../cycles/engine.js";
+import { getBlueprint } from "../../cycles/blueprints.js";
 
 interface CustomToolContext {
   threadId: string;
@@ -191,6 +193,189 @@ export async function createPatchworkMcpServer(
               data: { title: input.title },
             });
             return { text: `Thread title updated to: ${input.title}` };
+          },
+        }),
+
+        tool({
+          name: "cycle_start",
+          description: "Start a structured development cycle. Available cycles: feature-dev, debug, code-review, production-check.",
+          inputSchema: {
+            type: "object" as const,
+            properties: {
+              blueprintId: { type: "string", description: "Cycle ID to start (e.g. 'feature-dev', 'debug')" },
+            },
+            required: ["blueprintId"],
+          },
+          handler: async (input: { blueprintId: string }) => {
+            const blueprint = getBlueprint(input.blueprintId);
+            if (!blueprint) {
+              return { text: `Unknown cycle: ${input.blueprintId}. Available: feature-dev, debug, code-review, production-check` };
+            }
+
+            const engine = new CycleEngine((event) => {
+              // Events will be picked up by the provider event system
+              console.log(`[cycle] ${event.type}`, JSON.stringify(event));
+            });
+
+            const run = await engine.startCycle(blueprint, ctx.threadId, ctx.workspacePath);
+            const firstNode = blueprint.nodes[0];
+            return {
+              text: JSON.stringify({
+                runId: run.id,
+                cycle: blueprint.name,
+                currentPhase: firstNode.name,
+                phaseIndex: 1,
+                totalPhases: blueprint.nodes.length,
+                prompt: engine.getPhasePrompt(blueprint, 0),
+              }),
+            };
+          },
+        }),
+
+        tool({
+          name: "cycle_status",
+          description: "Get the current status of the active development cycle for this thread.",
+          inputSchema: { type: "object" as const, properties: {} },
+          handler: async () => {
+            const run = await prisma.cycleRun.findFirst({
+              where: { threadId: ctx.threadId, status: "running" },
+              include: { nodeResults: { orderBy: { startedAt: "asc" } } },
+            });
+            if (!run) {
+              return { text: JSON.stringify({ active: false }) };
+            }
+            const blueprint = getBlueprint(run.blueprintId);
+            const currentNode = blueprint?.nodes[run.currentNodeIndex];
+            return {
+              text: JSON.stringify({
+                active: true,
+                runId: run.id,
+                blueprintId: run.blueprintId,
+                cycleName: blueprint?.name,
+                currentPhase: currentNode?.name,
+                phaseIndex: run.currentNodeIndex + 1,
+                totalPhases: blueprint?.nodes.length,
+                status: run.status,
+                nodeResults: run.nodeResults.map((nr: any) => ({
+                  nodeId: nr.nodeId,
+                  status: nr.status,
+                  iterations: nr.iterations,
+                })),
+              }),
+            };
+          },
+        }),
+
+        tool({
+          name: "cycle_advance",
+          description: "Signal that the current agentic phase is complete and advance to the next phase. If the next phase is a deterministic gate, it runs automatically and returns the results.",
+          inputSchema: { type: "object" as const, properties: {} },
+          handler: async () => {
+            const run = await prisma.cycleRun.findFirst({
+              where: { threadId: ctx.threadId, status: "running" },
+            });
+            if (!run) {
+              return { text: "No active cycle to advance." };
+            }
+            const blueprint = getBlueprint(run.blueprintId);
+            if (!blueprint) {
+              return { text: `Blueprint not found: ${run.blueprintId}` };
+            }
+
+            const engine = new CycleEngine((event) => {
+              console.log(`[cycle] ${event.type}`, JSON.stringify(event));
+            });
+
+            const result = await engine.advanceAgenticNode(run.id, blueprint, ctx.workspacePath);
+
+            if (result.completed) {
+              return { text: JSON.stringify({ completed: true, message: "Cycle completed successfully!" }) };
+            }
+
+            const nextNode = result.nextNode!;
+
+            // If next node is deterministic, run it automatically
+            if (nextNode.type === "deterministic") {
+              const nextIndex = blueprint.nodes.findIndex((n) => n.id === nextNode.id);
+              const gateResult = await engine.runDeterministicNode(run.id, blueprint, nextIndex, ctx.workspacePath);
+
+              return {
+                text: JSON.stringify({
+                  phase: nextNode.name,
+                  phaseType: "deterministic",
+                  gateResults: gateResult.gateResults,
+                  passed: gateResult.passed,
+                  action: gateResult.action,
+                  fixNodeId: gateResult.fixNodeId,
+                  nextPrompt: gateResult.action === "retry" && gateResult.fixNodeId
+                    ? engine.getPhasePrompt(blueprint, blueprint.nodes.findIndex((n) => n.id === gateResult.fixNodeId))
+                    : undefined,
+                }),
+              };
+            }
+
+            return {
+              text: JSON.stringify({
+                phase: nextNode.name,
+                phaseType: "agentic",
+                phaseIndex: blueprint.nodes.findIndex((n) => n.id === nextNode.id) + 1,
+                totalPhases: blueprint.nodes.length,
+                prompt: engine.getPhasePrompt(blueprint, blueprint.nodes.findIndex((n) => n.id === nextNode.id)),
+              }),
+            };
+          },
+        }),
+
+        tool({
+          name: "cycle_skip",
+          description: "Skip a pending phase in the current cycle. Use for small/routine tasks that don't need full cycle phases.",
+          inputSchema: {
+            type: "object" as const,
+            properties: {
+              nodeId: { type: "string", description: "ID of the node/phase to skip" },
+              reason: { type: "string", description: "Brief reason for skipping" },
+            },
+            required: ["nodeId", "reason"],
+          },
+          handler: async (input: { nodeId: string; reason: string }) => {
+            const run = await prisma.cycleRun.findFirst({
+              where: { threadId: ctx.threadId, status: "running" },
+              include: { nodeResults: true },
+            });
+            if (!run) {
+              return { text: "No active cycle." };
+            }
+            const blueprint = getBlueprint(run.blueprintId);
+            if (!blueprint) {
+              return { text: `Blueprint not found: ${run.blueprintId}` };
+            }
+
+            const nodeIndex = blueprint.nodes.findIndex((n) => n.id === input.nodeId);
+            if (nodeIndex < 0) {
+              return { text: `Node not found: ${input.nodeId}` };
+            }
+            if (nodeIndex < run.currentNodeIndex) {
+              return { text: `Cannot skip: node ${input.nodeId} is already past.` };
+            }
+
+            // Mark node as skipped
+            const nodeResult = (run.nodeResults as any[]).find((nr: any) => nr.nodeId === input.nodeId);
+            if (nodeResult) {
+              await prisma.cycleNodeResult.update({
+                where: { id: nodeResult.id },
+                data: { status: "skipped", completedAt: new Date() },
+              });
+            }
+
+            // If skipping the current node, advance the index
+            if (nodeIndex === run.currentNodeIndex) {
+              await prisma.cycleRun.update({
+                where: { id: run.id },
+                data: { currentNodeIndex: run.currentNodeIndex + 1 },
+              });
+            }
+
+            return { text: JSON.stringify({ skipped: true, nodeId: input.nodeId, reason: input.reason }) };
           },
         }),
       ],
