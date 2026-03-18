@@ -14,40 +14,43 @@ export type CacheTier = keyof typeof TTL_TIERS;
 let client: RedisClientType | null = null;
 let connectFailed = false;
 let lastConnectAttempt = 0;
+let errorLogged = false;
 const RETRY_INTERVAL_MS = 30_000; // retry connection every 30s after failure
 
 export async function getRedis(): Promise<RedisClientType> {
   // If a previous connect attempt failed, don't retry too frequently
   if (connectFailed) {
     if (Date.now() - lastConnectAttempt < RETRY_INTERVAL_MS) {
-      throw new Error("Redis connection previously failed, waiting before retry");
+      throw new Error("Redis unavailable");
     }
     // Reset for retry
     connectFailed = false;
+    errorLogged = false;
     client = null;
   }
 
   if (!client) {
     lastConnectAttempt = Date.now();
-    client = createClient({ url: REDIS_URL });
+    client = createClient({
+      url: REDIS_URL,
+      socket: {
+        // Disable auto-reconnect — we manage retries ourselves via getRedis()
+        reconnectStrategy: false,
+        connectTimeout: CONNECT_TIMEOUT_MS,
+      },
+    });
     client.on("error", (err) => {
-      // Only log once per failure cycle to avoid flooding
-      if (!connectFailed) {
-        console.error("Redis error:", err.message);
+      // Log only the first error per connection cycle
+      if (!errorLogged) {
+        errorLogged = true;
+        console.error("[redis] Connection error:", err.message);
       }
     });
 
-    // Race connection against a timeout so we don't hang forever
     try {
-      await Promise.race([
-        client.connect(),
-        new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error("Redis connect timeout")), CONNECT_TIMEOUT_MS)
-        ),
-      ]);
+      await client.connect();
     } catch (err) {
       connectFailed = true;
-      // Destroy the client so the next attempt creates a fresh one
       try { await client.disconnect(); } catch {}
       client = null;
       throw err;
