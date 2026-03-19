@@ -21,9 +21,19 @@ export function projectsRouter(): Router {
         orderBy: { updatedAt: "desc" },
         include: {
           _count: { select: { threads: true, issues: true } },
+          threads: { select: { status: true } },
         },
       });
-      res.json(projects);
+
+      // Derive project status from thread statuses
+      const enriched = projects.map(({ threads, ...project }) => {
+        const hasActive = threads.some((t) =>
+          t.status === "active" || t.status === "starting",
+        );
+        return { ...project, status: hasActive ? "active" : project.status };
+      });
+
+      res.json(enriched);
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
@@ -67,7 +77,14 @@ export function projectsRouter(): Router {
         },
       });
       if (!project) return res.status(404).json({ error: "Not found" });
-      res.json(project);
+
+      // Derive project status from thread statuses
+      const hasActive = project.threads.some((t) =>
+        t.status === "active" || t.status === "starting",
+      );
+      const enriched = { ...project, status: hasActive ? "active" : project.status };
+
+      res.json(enriched);
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
