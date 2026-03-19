@@ -1,6 +1,7 @@
 import prisma from "../db/prisma.js";
-import { insertIssue } from "../db/queries.js";
+import { insertIssue, updateIssue } from "../db/queries.js";
 import { listRepoIssues } from "./client.js";
+import { cacheInvalidate } from "../cache/redis.js";
 
 const SYNC_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
 
@@ -10,6 +11,8 @@ export class GitHubSyncJob {
   start(): void {
     console.log("GitHub sync job started (interval: 5m)");
     this.timer = setInterval(() => this.tick(), SYNC_INTERVAL_MS);
+    // Run immediately on start so issues are synced without waiting 5 minutes
+    this.tick();
   }
 
   stop(): void {
@@ -58,7 +61,11 @@ export class GitHubSyncJob {
     if (!owner || !repo) return;
 
     try {
-      const issues = await listRepoIssues(accessToken, owner, repo, "patchwork");
+      // Invalidate cached issues so we get fresh data every sync
+      await cacheInvalidate(`gh:issues:${repoFullName}:*`);
+
+      // Fetch all open issues (no label filter)
+      const issues = await listRepoIssues(accessToken, owner, repo);
 
       for (const ghIssue of issues) {
         const existing = await prisma.issue.findFirst({
@@ -66,19 +73,40 @@ export class GitHubSyncJob {
         });
         if (existing) continue;
 
-        await insertIssue({
+        const ghLabels = ghIssue.labels.map((l) => l.name);
+        const hasAutoLabel = ghLabels.some(
+          (name) => name.toLowerCase() === "auto"
+        );
+
+        // Find a project that matches this repo so auto issues can be dispatched
+        const project = await prisma.project.findFirst({
+          where: { repo: repoFullName, userId },
+        });
+
+        const issue = await insertIssue({
           title: ghIssue.title,
           body: ghIssue.body || "",
           repo: repoFullName,
-          branch: "main",
+          branch: project?.branch || "main",
           githubIssueId: ghIssue.number,
           githubIssueUrl: ghIssue.html_url,
           createdByUserId: userId,
+          labels: ghLabels,
+          projectId: project?.id,
         });
 
-        console.log(
-          `Synced GitHub issue #${ghIssue.number} from ${repoFullName}`
-        );
+        // If the issue has the "auto" label and a matching project exists,
+        // set it to "queued" so the orchestrator picks it up automatically
+        if (hasAutoLabel && project) {
+          await updateIssue(issue.id, { status: "queued" });
+          console.log(
+            `Synced & queued GitHub issue #${ghIssue.number} from ${repoFullName} (auto label)`
+          );
+        } else {
+          console.log(
+            `Synced GitHub issue #${ghIssue.number} from ${repoFullName}`
+          );
+        }
       }
     } catch (err) {
       console.error(`Failed to sync ${repoFullName}:`, err);
