@@ -20,6 +20,14 @@ services:
       - patchwork
     command: redis-server --appendonly yes
 
+  auth-image:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.auth
+    image: patchwork-auth:latest
+    restart: "no"
+    command: ["true"]
+
   server:
     build:
       context: .
@@ -28,6 +36,7 @@ services:
     depends_on:
       - postgres
       - redis
+      - auth-image
     ports:
       - "${SERVER_PORT:-3001}:3001"
     volumes:
