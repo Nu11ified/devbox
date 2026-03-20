@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Terminal as TerminalIcon } from "lucide-react";
+import "@xterm/xterm/css/xterm.css";
 
 interface AuthTerminalModalProps {
   open: boolean;
@@ -54,8 +55,6 @@ export function AuthTerminalModal({
     const initTerminal = async () => {
       const { Terminal } = await import("@xterm/xterm");
       const { FitAddon } = await import("@xterm/addon-fit");
-      await import("@xterm/xterm/css/xterm.css");
-
       if (!termRef.current || !open) return;
 
       const terminal = new Terminal({
