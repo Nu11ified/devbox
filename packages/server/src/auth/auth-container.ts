@@ -55,6 +55,7 @@ export class AuthContainerService {
   ): Promise<{
     containerId: string;
     cleanup: () => Promise<void>;
+    start: () => Promise<void>;
   }> {
     if (this.activeContainers.has(userId)) {
       throw new Error("Auth container already active for this user");
@@ -95,9 +96,9 @@ export class AuthContainerService {
     }, this.config.timeoutMs);
 
     this.activeContainers.set(userId, { containerId, timer });
-    await container.start();
 
-    return { containerId, cleanup };
+    const start = async () => { await container.start(); };
+    return { containerId, cleanup, start };
   }
 
   async pollForCredentials(

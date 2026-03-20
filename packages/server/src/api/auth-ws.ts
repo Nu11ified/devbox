@@ -19,14 +19,12 @@ export function setupAuthWebSocket(
     let cleanup: (() => Promise<void>) | null = null;
 
     try {
-      // Spawn auth container
+      // Spawn auth container (created but not started)
       const result = await authContainerService.spawnAuthContainer(userId, provider);
       cleanup = result.cleanup;
       const containerId = result.containerId;
 
-      ws.send(JSON.stringify({ type: "auth.ready", containerId }));
-
-      // Attach to container PTY
+      // Attach to container PTY BEFORE starting so we don't miss any output
       const container = docker.getContainer(containerId);
       const attachStream = await container.attach({
         stream: true,
@@ -53,12 +51,19 @@ export function setupAuthWebSocket(
         } catch {}
       });
 
+      // Now start the container — output flows into the already-attached stream
+      await result.start();
+      ws.send(JSON.stringify({ type: "auth.ready", containerId }));
+
       // Poll for credential files
       const abortController = new AbortController();
 
-      // Abort polling if WebSocket closes
+      // Cleanup container when WebSocket closes (user closed the modal)
       ws.on("close", () => {
         abortController.abort();
+        if (cleanup) {
+          cleanup().then(() => { cleanup = null; }).catch(() => {});
+        }
       });
 
       const credentialFiles = await authContainerService.pollForCredentials(
