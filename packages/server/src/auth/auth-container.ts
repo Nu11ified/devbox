@@ -1,5 +1,5 @@
-import * as pty from "node-pty";
-import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
+import { spawn, type ChildProcess } from "node:child_process";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 
@@ -8,7 +8,7 @@ export interface AuthContainerConfig {
 }
 
 interface ActiveSession {
-  ptyProcess: pty.IPty;
+  process: ChildProcess;
   timer: ReturnType<typeof setTimeout> | null;
 }
 
@@ -41,26 +41,24 @@ export class AuthContainerService {
     return this.activeSessions.has(userId);
   }
 
-  async spawnAuthContainer(
+  spawnAuthProcess(
     userId: string,
     provider: string,
-  ): Promise<{
-    ptyProcess: pty.IPty;
+  ): {
+    process: ChildProcess;
     cleanup: () => Promise<void>;
-  }> {
+  } {
     if (this.activeSessions.has(userId)) {
-      console.log(`[auth-pty] Destroying stale session for user ${userId}`);
-      await this.destroyContainer(userId);
+      console.log(`[auth] Destroying stale session for user ${userId}`);
+      this.destroySession(userId);
     }
 
     const cliDef = CLI_COMMANDS[provider];
     if (!cliDef) throw new Error(`Unknown provider: ${provider}`);
 
-    const ptyProcess = pty.spawn(cliDef.cmd, cliDef.args, {
-      name: "xterm-256color",
-      cols: 120,
-      rows: 30,
-      env: process.env as Record<string, string>,
+    const child = spawn(cliDef.cmd, cliDef.args, {
+      stdio: ["pipe", "pipe", "pipe"],
+      env: { ...process.env, FORCE_COLOR: "1" },
     });
 
     const cleanup = async () => {
@@ -68,7 +66,7 @@ export class AuthContainerService {
       if (entry?.timer) clearTimeout(entry.timer);
       this.activeSessions.delete(userId);
       try {
-        ptyProcess.kill();
+        child.kill();
       } catch {}
     };
 
@@ -76,9 +74,9 @@ export class AuthContainerService {
       await cleanup();
     }, this.config.timeoutMs);
 
-    this.activeSessions.set(userId, { ptyProcess, timer });
+    this.activeSessions.set(userId, { process: child, timer });
 
-    return { ptyProcess, cleanup };
+    return { process: child, cleanup };
   }
 
   async pollForCredentials(
@@ -100,7 +98,7 @@ export class AuthContainerService {
           }
         }
       } catch (err: any) {
-        console.error(`[auth-pty] Error checking ${credDir}:`, err.message);
+        console.error(`[auth] Error checking ${credDir}:`, err.message);
       }
 
       await new Promise<void>((resolve) => {
@@ -124,7 +122,7 @@ export class AuthContainerService {
     }
   }
 
-  async destroyContainer(userId: string): Promise<void> {
+  destroySession(userId: string): void {
     const entry = this.activeSessions.get(userId);
     if (!entry) return;
 
@@ -132,7 +130,11 @@ export class AuthContainerService {
     this.activeSessions.delete(userId);
 
     try {
-      entry.ptyProcess.kill();
+      entry.process.kill();
     } catch {}
+  }
+
+  async destroyContainer(userId: string): Promise<void> {
+    this.destroySession(userId);
   }
 }

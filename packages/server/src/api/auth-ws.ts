@@ -17,32 +17,39 @@ export function setupAuthWebSocket(
     let cleanup: (() => Promise<void>) | null = null;
 
     try {
-      const result = await authContainerService.spawnAuthContainer(userId, provider);
+      const result = authContainerService.spawnAuthProcess(userId, provider);
       cleanup = result.cleanup;
-      const ptyProcess = result.ptyProcess;
+      const child = result.process;
 
       ws.send(JSON.stringify({ type: "auth.ready" }));
 
-      // PTY stdout → WebSocket
-      ptyProcess.onData((data: string) => {
+      // stdout → WebSocket
+      child.stdout?.on("data", (chunk: Buffer) => {
         if (ws.readyState === WebSocket.OPEN) {
-          ws.send(JSON.stringify({ type: "data", data }));
+          ws.send(JSON.stringify({ type: "data", data: chunk.toString() }));
         }
       });
 
-      // PTY exit
-      ptyProcess.onExit(({ exitCode }) => {
+      // stderr → WebSocket
+      child.stderr?.on("data", (chunk: Buffer) => {
         if (ws.readyState === WebSocket.OPEN) {
-          ws.send(JSON.stringify({ type: "data", data: `\r\nProcess exited with code ${exitCode}\r\n` }));
+          ws.send(JSON.stringify({ type: "data", data: chunk.toString() }));
         }
       });
 
-      // WebSocket → PTY stdin
+      // Process exit
+      child.on("exit", (code) => {
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ type: "data", data: `\r\nProcess exited with code ${code}\r\n` }));
+        }
+      });
+
+      // WebSocket → stdin
       ws.on("message", (raw) => {
         try {
           const msg = JSON.parse(raw.toString());
           if (msg.type === "data" && msg.data) {
-            ptyProcess.write(msg.data);
+            child.stdin?.write(msg.data);
           }
         } catch {}
       });
