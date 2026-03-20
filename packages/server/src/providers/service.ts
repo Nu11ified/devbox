@@ -22,6 +22,7 @@ interface EnsureSessionOpts {
   apiKey?: string;
   githubToken?: string;
   useSubscription?: boolean;
+  oauthFiles?: Record<string, Buffer>;
 }
 
 export class ProviderService {
@@ -181,6 +182,7 @@ export class ProviderService {
         useSubscription: opts?.useSubscription ?? false,
         apiKey: opts?.apiKey,
         githubToken: opts?.githubToken,
+        oauthFiles: opts?.oauthFiles,
         repo: thread.repo ?? undefined,
         branch: thread.branch ?? undefined,
         resumeCursor,

@@ -124,7 +124,7 @@ if (isMain) {
     const server = createServer(app);
 
     setupWebSocket(server);
-    setupThreadWebSocket(server, providerService);
+    setupThreadWebSocket(server, providerService, credentialStore);
     setupProjectEventsWebSocket(server);
 
     // Auth terminal WebSocket (container-based OAuth flows)
