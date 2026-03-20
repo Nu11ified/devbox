@@ -38,7 +38,7 @@ RUN cp packages/server/package.json /tmp/server-package.json && \
 FROM oven/bun:slim
 
 RUN apt-get update -y && apt-get install -y openssl git npm util-linux && rm -rf /var/lib/apt/lists/* && \
-    npm install -g @anthropic-ai/claude-code @openai/codex-cli && npm cache clean --force
+    npm install -g @anthropic-ai/claude-code @openai/codex && npm cache clean --force
 
 WORKDIR /app
 
