@@ -1,0 +1,12 @@
+FROM node:20-slim
+
+# Install Claude CLI and Codex CLI globally
+RUN npm install -g @anthropic-ai/claude-code @openai/codex
+
+# Create a non-root user
+RUN useradd --create-home --home-dir /home/user --shell /bin/bash user
+
+USER user
+WORKDIR /home/user
+
+CMD ["bash"]
