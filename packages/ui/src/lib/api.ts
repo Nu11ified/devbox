@@ -530,26 +530,25 @@ class PatchworkAPI {
     return request("/api/settings/onboarding");
   }
 
-  // Auth
-  async getAuthStatus(): Promise<{
-    claude: { connected: boolean };
-    codex: { connected: boolean };
-  }> {
-    return request("/api/auth/status");
+  // Auth — Provider Credentials
+  async getProviderStatus(): Promise<Record<string, {
+    connected: boolean;
+    authMethod?: string;
+    lastUsedAt?: string;
+    status?: string;
+  }>> {
+    return request("/api/auth/provider/status");
   }
 
-  async saveToken(
-    provider: "claude" | "codex",
-    token: string,
-  ): Promise<{ ok: boolean }> {
-    return request("/api/auth/tokens", {
+  async storeProviderApiKey(provider: string, apiKey: string): Promise<{ provider: string; stored: boolean }> {
+    return request(`/api/auth/provider/apikey/${provider}`, {
       method: "POST",
-      body: JSON.stringify({ provider, token }),
+      body: JSON.stringify({ apiKey }),
     });
   }
 
-  async removeToken(provider: "claude" | "codex"): Promise<void> {
-    return request(`/api/auth/tokens/${provider}`, { method: "DELETE" });
+  async disconnectProvider(provider: string): Promise<void> {
+    return request(`/api/auth/provider/${provider}`, { method: "DELETE" });
   }
 
   // Health

@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { useSession, signIn } from "@/lib/auth-client";
-import { useApi } from "@/hooks/use-api";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -34,16 +33,12 @@ import {
   Users,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { AuthTerminalModal } from "./auth-terminal-modal";
 
 // ── Types ──────────────────────────────────────────────────────────
 
 type RuntimeMode = "approval-required" | "full-access";
 type EffortLevel = "low" | "medium" | "high";
-
-interface AuthStatus {
-  claude: { connected: boolean };
-  codex: { connected: boolean };
-}
 
 interface GitHubRepo {
   full_name: string;
@@ -96,92 +91,6 @@ function Section({
   );
 }
 
-// ── Token field ────────────────────────────────────────────────────
-
-function TokenField({
-  label,
-  provider,
-  connected,
-  onSave,
-  onRemove,
-}: {
-  label: string;
-  provider: "claude" | "codex";
-  connected: boolean;
-  onSave: (provider: "claude" | "codex", token: string) => Promise<void>;
-  onRemove: (provider: "claude" | "codex") => Promise<void>;
-}) {
-  const [token, setToken] = useState("");
-  const [saving, setSaving] = useState(false);
-  const [removing, setRemoving] = useState(false);
-
-  async function handleSave() {
-    if (!token.trim()) return;
-    setSaving(true);
-    try {
-      await onSave(provider, token.trim());
-      setToken("");
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  async function handleRemove() {
-    setRemoving(true);
-    try {
-      await onRemove(provider);
-    } finally {
-      setRemoving(false);
-    }
-  }
-
-  return (
-    <div className="space-y-2">
-      <div className="flex items-center gap-2">
-        <span className="text-xs font-medium text-zinc-300">{label}</span>
-        <span
-          className={cn(
-            "inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-medium border",
-            connected
-              ? "bg-emerald-900/30 text-emerald-400 border-emerald-700/30"
-              : "bg-amber-900/20 text-amber-400 border-amber-700/30"
-          )}
-        >
-          {connected ? "Connected" : "Not connected"}
-        </span>
-      </div>
-      <div className="flex gap-2">
-        <Input
-          type="password"
-          placeholder={connected ? "••••••••" : "Enter API token..."}
-          value={token}
-          onChange={(e) => setToken(e.target.value)}
-          className="flex-1 bg-zinc-950/50 border-zinc-800/60 text-sm font-mono placeholder:text-zinc-600"
-        />
-        <Button
-          size="sm"
-          onClick={handleSave}
-          disabled={saving || !token.trim()}
-          className="text-xs"
-        >
-          {saving ? "Saving..." : "Save"}
-        </Button>
-        {connected && (
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={handleRemove}
-            disabled={removing}
-            className="text-xs border-zinc-800 hover:bg-zinc-800/50"
-          >
-            {removing ? "..." : "Remove"}
-          </Button>
-        )}
-      </div>
-    </div>
-  );
-}
-
 // ── Subscription toggle row ────────────────────────────────────────
 
 function SubToggle({
@@ -216,10 +125,13 @@ function SubToggle({
 
 export function SettingsForm() {
   const { data: session } = useSession();
-  const { data: authStatus, refetch: refetchAuth } = useApi<AuthStatus>(
-    () => api.getAuthStatus(),
-    [],
-  );
+
+  // Provider connections
+  const [providerStatus, setProviderStatus] = useState<Record<string, any>>({});
+  const [terminalOpen, setTerminalOpen] = useState(false);
+  const [terminalProvider, setTerminalProvider] = useState<"claude" | "codex">("claude");
+  const [apiKeyInput, setApiKeyInput] = useState<Record<string, string>>({});
+  const [showApiKey, setShowApiKey] = useState<Record<string, boolean>>({});
 
   // GitHub account info
   const [ghUser, setGhUser] = useState<{
@@ -250,6 +162,15 @@ export function SettingsForm() {
   const [claudeSub, setClaudeSub] = useState(false);
   const [openaiSub, setOpenaiSub] = useState(false);
   const [settingsLoaded, setSettingsLoaded] = useState(false);
+
+  // Load provider status on mount
+  useEffect(() => {
+    api.getProviderStatus().then(setProviderStatus).catch(() => {});
+  }, []);
+
+  const refreshProviderStatus = () => {
+    api.getProviderStatus().then(setProviderStatus).catch(() => {});
+  };
 
   // Load settings + GitHub user + repos on mount
   useEffect(() => {
@@ -356,16 +277,6 @@ export function SettingsForm() {
     setSshHost(v);
     api.updateSettings({ sshHost: v || null });
   }, []);
-
-  async function handleSaveToken(provider: "claude" | "codex", token: string) {
-    await api.saveToken(provider, token);
-    refetchAuth();
-  }
-
-  async function handleRemoveToken(provider: "claude" | "codex") {
-    await api.removeToken(provider);
-    refetchAuth();
-  }
 
   async function handleClaudeSubToggle(checked: boolean) {
     setClaudeSub(checked);
@@ -574,27 +485,117 @@ export function SettingsForm() {
         </div>
       </Section>
 
-      {/* ── Agent Credentials ──────────────────────────────────── */}
+      {/* ── Provider Connections ──────────────────────────────── */}
       <Section
         icon={Key}
-        title="Agent Credentials"
-        description="API tokens are encrypted at rest and injected into devbox containers."
+        title="Provider Connections"
+        description="Connect your AI providers via CLI OAuth or API key. Credentials are encrypted at rest."
       >
-        <TokenField
-          label="Claude Code"
-          provider="claude"
-          connected={authStatus?.claude.connected ?? false}
-          onSave={handleSaveToken}
-          onRemove={handleRemoveToken}
-        />
-        <TokenField
-          label="Codex"
-          provider="codex"
-          connected={authStatus?.codex.connected ?? false}
-          onSave={handleSaveToken}
-          onRemove={handleRemoveToken}
-        />
+        {(["claude", "codex"] as const).map((providerKey) => {
+          const status = providerStatus[providerKey];
+          const isConnected = status?.connected;
+          const isExpired = status?.status === "expired";
+          const label = providerKey === "claude" ? "Claude" : "Codex";
+
+          return (
+            <div key={providerKey} className="rounded-lg border border-zinc-800 p-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <span className="font-medium text-sm">{label}</span>
+                  {isConnected && (
+                    <span className="text-xs px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                      {status.authMethod === "oauth" ? "OAuth" : "API Key"}
+                    </span>
+                  )}
+                  {isExpired && (
+                    <span className="text-xs px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                      Expired
+                    </span>
+                  )}
+                </div>
+                {isConnected && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={async () => {
+                      await api.disconnectProvider(providerKey);
+                      refreshProviderStatus();
+                    }}
+                  >
+                    Disconnect
+                  </Button>
+                )}
+              </div>
+
+              {isExpired && (
+                <div className="text-xs text-amber-400 bg-amber-500/5 border border-amber-500/10 rounded p-2">
+                  Credentials expired. Please reauthenticate.
+                </div>
+              )}
+
+              {(!isConnected || isExpired) && (
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      setTerminalProvider(providerKey);
+                      setTerminalOpen(true);
+                    }}
+                  >
+                    Connect with CLI
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setShowApiKey(prev => ({ ...prev, [providerKey]: !prev[providerKey] }))}
+                  >
+                    Use API Key
+                  </Button>
+                </div>
+              )}
+
+              {showApiKey[providerKey] && !isConnected && (
+                <div className="flex items-center gap-2">
+                  <input
+                    type="password"
+                    placeholder={providerKey === "claude" ? "sk-ant-..." : "sk-..."}
+                    value={apiKeyInput[providerKey] || ""}
+                    onChange={(e) => setApiKeyInput(prev => ({ ...prev, [providerKey]: e.target.value }))}
+                    className="flex-1 rounded-md border border-zinc-700 bg-zinc-900 px-3 py-1.5 text-sm text-zinc-100 placeholder:text-zinc-500"
+                  />
+                  <Button
+                    size="sm"
+                    onClick={async () => {
+                      const key = apiKeyInput[providerKey];
+                      if (!key) return;
+                      await api.storeProviderApiKey(providerKey, key);
+                      setApiKeyInput(prev => ({ ...prev, [providerKey]: "" }));
+                      setShowApiKey(prev => ({ ...prev, [providerKey]: false }));
+                      refreshProviderStatus();
+                    }}
+                  >
+                    Save
+                  </Button>
+                </div>
+              )}
+
+              {isConnected && status.lastUsedAt && (
+                <div className="text-xs text-zinc-500">
+                  Last used: {new Date(status.lastUsedAt).toLocaleDateString()}
+                </div>
+              )}
+            </div>
+          );
+        })}
       </Section>
+
+      <AuthTerminalModal
+        open={terminalOpen}
+        onOpenChange={setTerminalOpen}
+        provider={terminalProvider}
+        onSuccess={refreshProviderStatus}
+      />
 
       {/* ── Subscriptions ──────────────────────────────────────── */}
       <Section
