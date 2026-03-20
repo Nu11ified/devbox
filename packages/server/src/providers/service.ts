@@ -43,6 +43,7 @@ export class ProviderService {
     workspacePath: string;
     useSubscription: boolean;
     apiKey?: string;
+    oauthFiles?: Record<string, Buffer>;
     githubToken?: string;
     userId?: string;
     issueId?: string;
@@ -91,6 +92,7 @@ export class ProviderService {
         workspacePath: input.workspacePath,
         useSubscription: input.useSubscription,
         apiKey: input.apiKey,
+        oauthFiles: input.oauthFiles,
         githubToken: input.githubToken,
         repo: input.repo,
         branch: input.branch,

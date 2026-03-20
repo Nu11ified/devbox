@@ -26,6 +26,8 @@ export interface SessionStartInput {
   workspacePath: string;
   useSubscription: boolean;
   apiKey?: string;
+  /** OAuth credential files to inject (e.g. ~/.claude/ contents) */
+  oauthFiles?: Record<string, Buffer>;
   githubToken?: string;
   resumeCursor?: unknown;
   repo?: string;
