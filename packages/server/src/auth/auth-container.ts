@@ -56,9 +56,12 @@ export class AuthContainerService {
     const cliDef = CLI_COMMANDS[provider];
     if (!cliDef) throw new Error(`Unknown provider: ${provider}`);
 
-    const child = spawn(cliDef.cmd, cliDef.args, {
+    // Use `script` to wrap the command with a real PTY so interactive
+    // CLIs (claude auth login) produce output and accept input properly.
+    const fullCmd = [cliDef.cmd, ...cliDef.args].join(" ");
+    const child = spawn("script", ["-qfc", fullCmd, "/dev/null"], {
       stdio: ["pipe", "pipe", "pipe"],
-      env: { ...process.env, FORCE_COLOR: "1" },
+      env: { ...process.env, TERM: "xterm-256color" },
     });
 
     const cleanup = async () => {
