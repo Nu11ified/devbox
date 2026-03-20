@@ -58,7 +58,8 @@ export class AuthContainerService {
     start: () => Promise<void>;
   }> {
     if (this.activeContainers.has(userId)) {
-      throw new Error("Auth container already active for this user");
+      console.log(`[auth-container] Destroying stale container for user ${userId}`);
+      await this.destroyContainer(userId);
     }
 
     const cliCmd = CLI_COMMANDS[provider];
