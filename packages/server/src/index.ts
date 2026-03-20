@@ -9,7 +9,9 @@ import { blueprintsRouter } from "./api/blueprints.js";
 import { authRouter } from "./api/auth.js";
 import { setupWebSocket } from "./api/ws.js";
 import { setupThreadWebSocket, setupProjectEventsWebSocket } from "./api/thread-ws.js";
-import { AuthProxy } from "./auth/proxy.js";
+import { CredentialStore } from "./auth/credential-store.js";
+import { AuthContainerService } from "./auth/auth-container.js";
+import { setupAuthWebSocket } from "./api/auth-ws.js";
 import { issueWsTicket } from "./auth/ws-tickets.js";
 import { basicAuth } from "./auth/basic.js";
 import { sessionAuth } from "./auth/session-middleware.js";
@@ -31,7 +33,7 @@ import { PluginSyncJob } from "./plugins/sync.js";
 import prisma from "./db/prisma.js";
 import { startArchiveJob } from "./orchestrator/archive-job.js";
 
-export function createApp(): { app: express.Express; providerService: ProviderService } {
+export function createApp(): { app: express.Express; providerService: ProviderService; credentialStore: CredentialStore; authContainerService: AuthContainerService } {
   const app = express();
 
   // Try session auth first (better-auth), fall through to basic auth
@@ -39,10 +41,18 @@ export function createApp(): { app: express.Express; providerService: ProviderSe
   app.use(basicAuth());
   app.use(express.json());
 
-  // Auth proxy with encryption key from env or random (dev)
+  // Credential encryption
   const encKeyHex = process.env.PATCHWORK_ENCRYPTION_KEY;
+  if (!encKeyHex) {
+    console.warn("[server] PATCHWORK_ENCRYPTION_KEY not set — using random key (credentials will not persist across restarts)");
+  }
   const encKey = encKeyHex ? Buffer.from(encKeyHex, "hex") : randomBytes(32);
-  const authProxy = new AuthProxy(encKey);
+  const credentialStore = new CredentialStore(encKey);
+
+  const authContainerService = new AuthContainerService({
+    image: process.env.AUTH_CONTAINER_IMAGE || "patchwork-auth:latest",
+    timeoutMs: 5 * 60 * 1000,
+  });
 
   // Provider adapter system
   const adapterRegistry = new ProviderAdapterRegistry();
@@ -70,18 +80,18 @@ export function createApp(): { app: express.Express; providerService: ProviderSe
   app.use("/api/runs", runsRouter);
   app.use("/api/issues", issuesRouter);
   app.use("/api/blueprints", blueprintsRouter);
-  app.use("/api/auth", authRouter(authProxy));
+  app.use("/api/auth", authRouter(credentialStore, authContainerService));
   app.use("/api/github", githubRouter);
   app.use("/api/settings", settingsRouter);
-  app.use("/api/threads", threadsRouter(providerService, authProxy));
+  app.use("/api/threads", threadsRouter(providerService, credentialStore));
   app.use("/api/plugins", pluginsRouter());
   app.use("/api/projects", projectsRouter());
   app.use("/api/projects/:projectId/anki", ankiRouter());
   app.use("/api/archive", archiveRouter);
-  app.use("/api/projects/:projectId/teams", teamsRouter(providerService, authProxy));
+  app.use("/api/projects/:projectId/teams", teamsRouter(providerService, credentialStore));
   app.use("/api/threads/:threadId/cycle", cyclesRouter());
 
-  return { app, providerService };
+  return { app, providerService, credentialStore, authContainerService };
 }
 
 // Start server when run directly
@@ -110,12 +120,21 @@ if (isMain) {
     }
 
     const PORT = parseInt(process.env.PORT || "3001", 10);
-    const { app, providerService } = createApp();
+    const { app, providerService, credentialStore, authContainerService } = createApp();
     const server = createServer(app);
 
     setupWebSocket(server);
-    setupThreadWebSocket(server, providerService);
+    setupThreadWebSocket(server, providerService, credentialStore);
     setupProjectEventsWebSocket(server);
+
+    // Auth terminal WebSocket (container-based OAuth flows)
+    const authWs = setupAuthWebSocket(credentialStore, authContainerService);
+    server.on("upgrade", (req, socket, head) => {
+      const url = req.url ?? "";
+      if (url.startsWith("/api/auth/terminal/")) {
+        authWs.handleUpgrade(req, socket, head);
+      }
+    });
 
     server.listen(PORT, () => {
       console.log(`Patchwork server listening on port ${PORT}`);

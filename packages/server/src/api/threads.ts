@@ -7,7 +7,7 @@ import type { ProviderService } from "../providers/service.js";
 import { ThreadId } from "../providers/types.js";
 import type { ProviderKind } from "../providers/types.js";
 import { DevboxManager } from "../devbox/manager.js";
-import type { AuthProxy } from "../auth/proxy.js";
+import type { CredentialStore } from "../auth/credential-store.js";
 import { Octokit } from "@octokit/rest";
 import { createWorktree, removeWorktree } from "../git/worktree.js";
 import { commitAllChanges, pushBranch } from "../git/pr.js";
@@ -16,7 +16,7 @@ import { requireUser, getUserId } from "../auth/require-user.js";
 const THREADS_DIR = process.env.THREADS_DIR || "/data/patchwork/threads";
 const devboxManager = new DevboxManager();
 
-export function threadsRouter(providerService: ProviderService, authProxy?: AuthProxy): Router {
+export function threadsRouter(providerService: ProviderService, credentialStore?: CredentialStore): Router {
   const router = Router();
 
   // List threads for current user
@@ -79,11 +79,18 @@ export function threadsRouter(providerService: ProviderService, authProxy?: Auth
       let apiKey: string | undefined;
       let githubToken: string | undefined;
 
-      // Resolve API key: AuthProxy token → UserSettings DB key → env fallback
-      if (authProxy) {
-        const proxyProvider = provider === "claudeCode" ? "claude" : "codex";
-        const proxyToken = await authProxy.getToken(proxyProvider as "claude" | "codex");
-        if (proxyToken) apiKey = proxyToken;
+      // Resolve credentials from CredentialStore
+      let oauthFiles: Record<string, Buffer> | undefined;
+      if (credentialStore && userId) {
+        const providerName = provider === "claudeCode" ? "claude" : "codex";
+        const decrypted = await credentialStore.decryptCredential(userId, providerName);
+        if (decrypted) {
+          if (decrypted.type === "api_key") {
+            apiKey = decrypted.apiKey;
+          } else {
+            oauthFiles = decrypted.files;
+          }
+        }
       }
 
       if (userId) {
@@ -91,8 +98,8 @@ export function threadsRouter(providerService: ProviderService, authProxy?: Auth
         if (!useSubscription && provider === "claudeCode" && settings?.claudeSubscription) {
           subscription = true;
         }
-        // Only fall back to DB key if AuthProxy didn't have one
-        if (!apiKey) {
+        // Fall back to DB key only if no credential found (transitional)
+        if (!apiKey && !oauthFiles) {
           apiKey = settings?.anthropicApiKey ?? undefined;
         }
 
@@ -228,6 +235,7 @@ export function threadsRouter(providerService: ProviderService, authProxy?: Auth
           workspacePath: resolvedWorkspacePath,
           useSubscription: subscription,
           apiKey,
+          oauthFiles,
           githubToken,
           userId,
           issueId,

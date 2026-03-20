@@ -6,6 +6,7 @@ import { ThreadId } from "../providers/types.js";
 import type { ProviderEventEnvelope } from "../providers/events.js";
 import prisma from "../db/prisma.js";
 import { consumeWsTicket } from "../auth/ws-tickets.js";
+import type { CredentialStore } from "../auth/credential-store.js";
 import { ptyManager } from "../terminal/pty-manager.js";
 import { randomUUID } from "node:crypto";
 
@@ -46,10 +47,15 @@ async function resolveProjectId(threadId: string): Promise<string | null> {
   return null;
 }
 
+// Module-level credential store reference, set by setupThreadWebSocket
+let _credentialStore: CredentialStore | undefined;
+
 export function setupThreadWebSocket(
   server: HttpServer,
-  providerService: ProviderService
+  providerService: ProviderService,
+  credentialStore?: CredentialStore,
 ): void {
+  _credentialStore = credentialStore;
   const wss = new WebSocketServer({ noServer: true });
   const connections = new Map<string, Set<ThreadConnection>>();
 
@@ -190,14 +196,37 @@ export function setupThreadWebSocket(
   });
 }
 
-async function resolveUserCredentials(userId: string) {
+async function resolveUserCredentials(userId: string, provider?: string) {
+  let apiKey: string | undefined;
+  let oauthFiles: Record<string, Buffer> | undefined;
+
+  // Resolve from CredentialStore first
+  if (_credentialStore) {
+    const providerName = provider === "codex" ? "codex" : "claude";
+    const decrypted = await _credentialStore.decryptCredential(userId, providerName);
+    if (decrypted) {
+      if (decrypted.type === "api_key") {
+        apiKey = decrypted.apiKey;
+      } else {
+        oauthFiles = decrypted.files;
+      }
+    }
+  }
+
   const settings = await prisma.userSettings.findUnique({ where: { userId } });
+
+  // Fall back to DB key if no credential found (transitional)
+  if (!apiKey && !oauthFiles) {
+    apiKey = settings?.anthropicApiKey ?? undefined;
+  }
+
   const account = await prisma.account.findFirst({
     where: { userId, providerId: "github" },
   });
 
   return {
-    apiKey: settings?.anthropicApiKey ?? undefined,
+    apiKey,
+    oauthFiles,
     useSubscription: settings?.claudeSubscription ?? false,
     githubToken: account?.accessToken ?? undefined,
   };

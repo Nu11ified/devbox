@@ -42,6 +42,7 @@ interface SessionState {
   session: ProviderSession & {
     apiKey?: string;
     useSubscription?: boolean;
+    oauthFiles?: Record<string, Buffer>;
     githubToken?: string;
     workspacePath?: string;
     userId?: string;
@@ -124,6 +125,7 @@ export class ClaudeCodeAdapter implements ProviderAdapterShape {
         resumeCursor: input.resumeCursor,
         apiKey: input.apiKey,
         useSubscription: input.useSubscription,
+        oauthFiles: input.oauthFiles,
         githubToken: input.githubToken,
         workspacePath: input.workspacePath,
         userId: input.userId,
@@ -339,8 +341,27 @@ export class ClaudeCodeAdapter implements ProviderAdapterShape {
         Object.entries(process.env).filter((e): e is [string, string] => e[1] != null)
       ),
     };
-    // Only set API key if NOT using subscription mode.
-    if (state.session.apiKey && !state.session.useSubscription) {
+    // OAuth credential injection: write files to workspace instead of env var
+    if (state.session.oauthFiles && !state.session.apiKey) {
+      const claudeDir = join(cwd, ".claude");
+      if (!existsSync(claudeDir)) mkdirSync(claudeDir, { recursive: true });
+
+      for (const [relativePath, content] of Object.entries(state.session.oauthFiles)) {
+        const filePath = join(claudeDir, relativePath);
+        const dir = filePath.substring(0, filePath.lastIndexOf("/"));
+        if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+        writeFileSync(filePath, content, { mode: 0o600 });
+      }
+
+      // Tell Claude CLI to use the workspace .claude/ dir
+      env.CLAUDE_CONFIG_DIR = claudeDir;
+
+      // Zero the in-memory buffers after writing
+      for (const buf of Object.values(state.session.oauthFiles)) {
+        buf.fill(0);
+      }
+      delete state.session.oauthFiles;
+    } else if (state.session.apiKey && !state.session.useSubscription) {
       env.ANTHROPIC_API_KEY = state.session.apiKey;
     } else {
       delete env.ANTHROPIC_API_KEY;

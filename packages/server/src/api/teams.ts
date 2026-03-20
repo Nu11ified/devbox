@@ -4,12 +4,12 @@ import prisma from "../db/prisma.js";
 import type { ProviderService } from "../providers/service.js";
 import { ThreadId } from "../providers/types.js";
 import type { ProviderKind } from "../providers/types.js";
-import type { AuthProxy } from "../auth/proxy.js";
+import type { CredentialStore } from "../auth/credential-store.js";
 import { createWorktree } from "../git/worktree.js";
 
 const PROJECTS_DIR = process.env.PROJECTS_DIR || "/data/patchwork/projects";
 
-export function teamsRouter(providerService: ProviderService, authProxy?: AuthProxy): Router {
+export function teamsRouter(providerService: ProviderService, credentialStore?: CredentialStore): Router {
   const router = Router({ mergeParams: true });
 
   // GET / — List teams for a project. Include members with thread status.
@@ -122,20 +122,28 @@ export function teamsRouter(providerService: ProviderService, authProxy?: AuthPr
       });
       if (!project) return res.status(404).json({ error: "Project not found" });
 
-      // Resolve API key: AuthProxy token → UserSettings DB key → env fallback
+      // Resolve credentials from CredentialStore
       let apiKey: string | undefined;
+      let oauthFiles: Record<string, Buffer> | undefined;
       let subscription = false;
-      if (authProxy) {
-        const proxyProvider = provider === "claudeCode" ? "claude" : "codex";
-        const proxyToken = await authProxy.getToken(proxyProvider as "claude" | "codex");
-        if (proxyToken) apiKey = proxyToken;
+      if (credentialStore) {
+        const providerName = provider === "claudeCode" ? "claude" : "codex";
+        const decrypted = await credentialStore.decryptCredential(userId, providerName);
+        if (decrypted) {
+          if (decrypted.type === "api_key") {
+            apiKey = decrypted.apiKey;
+          } else {
+            oauthFiles = decrypted.files;
+          }
+        }
       }
 
       const settings = await prisma.userSettings.findUnique({ where: { userId } });
       if (provider === "claudeCode" && settings?.claudeSubscription) {
         subscription = true;
       }
-      if (!apiKey) {
+      // Fall back to DB key only if no credential found (transitional)
+      if (!apiKey && !oauthFiles) {
         apiKey = settings?.anthropicApiKey ?? undefined;
       }
 
@@ -199,6 +207,7 @@ export function teamsRouter(providerService: ProviderService, authProxy?: AuthPr
               workspacePath: worktreeDir,
               useSubscription: subscription,
               apiKey,
+              oauthFiles,
               githubToken,
               userId,
               projectId,
