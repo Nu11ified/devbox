@@ -1,7 +1,6 @@
 import type { IncomingMessage } from "node:http";
 import type { Duplex } from "node:stream";
 import { WebSocketServer, WebSocket } from "ws";
-import Docker from "dockerode";
 import type { CredentialStore } from "../auth/credential-store.js";
 import type { AuthContainerService } from "../auth/auth-container.js";
 import { consumeWsTicket } from "../auth/ws-tickets.js";
@@ -13,52 +12,45 @@ export function setupAuthWebSocket(
   authContainerService: AuthContainerService,
 ) {
   const wss = new WebSocketServer({ noServer: true });
-  const docker = new Docker({ socketPath: "/var/run/docker.sock" });
 
   wss.on("connection", async (ws: WebSocket, req: IncomingMessage, userId: string, provider: string) => {
     let cleanup: (() => Promise<void>) | null = null;
 
     try {
-      // Spawn auth container (created but not started)
       const result = await authContainerService.spawnAuthContainer(userId, provider);
       cleanup = result.cleanup;
-      const containerId = result.containerId;
+      const ptyProcess = result.ptyProcess;
 
-      // Attach to container PTY BEFORE starting so we don't miss any output
-      const container = docker.getContainer(containerId);
-      const attachStream = await container.attach({
-        stream: true,
-        stdin: true,
-        stdout: true,
-        stderr: true,
-        hijack: true,
-      });
+      ws.send(JSON.stringify({ type: "auth.ready" }));
 
-      // Container stdout → WebSocket
-      attachStream.on("data", (chunk: Buffer) => {
+      // PTY stdout → WebSocket
+      ptyProcess.onData((data: string) => {
         if (ws.readyState === WebSocket.OPEN) {
-          ws.send(JSON.stringify({ type: "data", data: chunk.toString() }));
+          ws.send(JSON.stringify({ type: "data", data }));
         }
       });
 
-      // WebSocket → Container stdin
+      // PTY exit
+      ptyProcess.onExit(({ exitCode }) => {
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ type: "data", data: `\r\nProcess exited with code ${exitCode}\r\n` }));
+        }
+      });
+
+      // WebSocket → PTY stdin
       ws.on("message", (raw) => {
         try {
           const msg = JSON.parse(raw.toString());
           if (msg.type === "data" && msg.data) {
-            attachStream.write(msg.data);
+            ptyProcess.write(msg.data);
           }
         } catch {}
       });
 
-      // Now start the container — output flows into the already-attached stream
-      await result.start();
-      ws.send(JSON.stringify({ type: "auth.ready", containerId }));
-
       // Poll for credential files
       const abortController = new AbortController();
 
-      // Cleanup container when WebSocket closes (user closed the modal)
+      // Cleanup when WebSocket closes (user closed the modal)
       ws.on("close", () => {
         abortController.abort();
         if (cleanup) {
@@ -67,7 +59,6 @@ export function setupAuthWebSocket(
       });
 
       const credentialFiles = await authContainerService.pollForCredentials(
-        containerId,
         provider,
         abortController.signal,
       );

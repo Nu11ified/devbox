@@ -1,94 +1,74 @@
-import Docker from "dockerode";
-import tar from "tar-stream";
+import * as pty from "node-pty";
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
+import { join } from "node:path";
+import { homedir } from "node:os";
 
 export interface AuthContainerConfig {
-  image: string;
   timeoutMs: number;
 }
 
-interface ActiveContainer {
-  containerId: string;
+interface ActiveSession {
+  ptyProcess: pty.IPty;
   timer: ReturnType<typeof setTimeout> | null;
 }
 
 const POLL_INTERVAL_MS = 2000;
 
-// Poll directories (not individual files) to capture all credential files
-const CREDENTIAL_PATHS: Record<string, string[]> = {
-  claude: ["/home/user/.claude/"],
-  codex: ["/home/user/.codex/"],
+const CREDENTIAL_DIRS: Record<string, string> = {
+  claude: join(homedir(), ".claude"),
+  codex: join(homedir(), ".codex"),
 };
 
-// Sentinel files that confirm auth completed
 const CREDENTIAL_SENTINELS: Record<string, string> = {
   claude: "credentials.json",
   codex: "auth.json",
 };
 
-const CLI_COMMANDS: Record<string, string[]> = {
-  claude: ["claude", "login"],
-  codex: ["codex", "login"],
+const CLI_COMMANDS: Record<string, { cmd: string; args: string[] }> = {
+  claude: { cmd: "claude", args: ["auth", "login"] },
+  codex: { cmd: "codex", args: ["auth", "login"] },
 };
 
 export class AuthContainerService {
-  private docker: Docker;
   private config: AuthContainerConfig;
-  private activeContainers = new Map<string, ActiveContainer>();
+  private activeSessions = new Map<string, ActiveSession>();
 
-  constructor(config: AuthContainerConfig, docker?: Docker) {
+  constructor(config: AuthContainerConfig) {
     this.config = config;
-    this.docker = docker ?? new Docker({ socketPath: "/var/run/docker.sock" });
   }
 
   hasActiveContainer(userId: string): boolean {
-    return this.activeContainers.has(userId);
-  }
-
-  /** Test helper — set active container entry. */
-  _setActiveContainer(userId: string, entry: ActiveContainer): void {
-    this.activeContainers.set(userId, entry);
+    return this.activeSessions.has(userId);
   }
 
   async spawnAuthContainer(
     userId: string,
     provider: string,
   ): Promise<{
-    containerId: string;
+    ptyProcess: pty.IPty;
     cleanup: () => Promise<void>;
-    start: () => Promise<void>;
   }> {
-    if (this.activeContainers.has(userId)) {
-      console.log(`[auth-container] Destroying stale container for user ${userId}`);
+    if (this.activeSessions.has(userId)) {
+      console.log(`[auth-pty] Destroying stale session for user ${userId}`);
       await this.destroyContainer(userId);
     }
 
-    const cliCmd = CLI_COMMANDS[provider];
-    if (!cliCmd) throw new Error(`Unknown provider: ${provider}`);
+    const cliDef = CLI_COMMANDS[provider];
+    if (!cliDef) throw new Error(`Unknown provider: ${provider}`);
 
-    const container = await this.docker.createContainer({
-      Image: this.config.image,
-      Cmd: cliCmd,
-      Tty: true,
-      OpenStdin: true,
-      HostConfig: {
-        CapDrop: ["ALL"],
-        SecurityOpt: ["no-new-privileges:true"],
-        PidsLimit: 64,
-        Tmpfs: { "/home/user": "rw,noexec,nosuid,size=64m" },
-      },
+    const ptyProcess = pty.spawn(cliDef.cmd, cliDef.args, {
+      name: "xterm-256color",
+      cols: 120,
+      rows: 30,
+      env: process.env as Record<string, string>,
     });
 
-    const containerId = container.id;
-
     const cleanup = async () => {
-      const entry = this.activeContainers.get(userId);
+      const entry = this.activeSessions.get(userId);
       if (entry?.timer) clearTimeout(entry.timer);
-      this.activeContainers.delete(userId);
+      this.activeSessions.delete(userId);
       try {
-        await container.stop({ t: 2 });
-      } catch {}
-      try {
-        await container.remove({ force: true });
+        ptyProcess.kill();
       } catch {}
     };
 
@@ -96,36 +76,31 @@ export class AuthContainerService {
       await cleanup();
     }, this.config.timeoutMs);
 
-    this.activeContainers.set(userId, { containerId, timer });
+    this.activeSessions.set(userId, { ptyProcess, timer });
 
-    const start = async () => { await container.start(); };
-    return { containerId, cleanup, start };
+    return { ptyProcess, cleanup };
   }
 
   async pollForCredentials(
-    containerId: string,
     provider: string,
     signal: AbortSignal,
   ): Promise<Record<string, Buffer> | null> {
-    const paths = CREDENTIAL_PATHS[provider];
-    if (!paths) return null;
-
-    const container = this.docker.getContainer(containerId);
+    const credDir = CREDENTIAL_DIRS[provider];
     const sentinel = CREDENTIAL_SENTINELS[provider];
+    if (!credDir || !sentinel) return null;
 
     while (!signal.aborted) {
-      for (const dirPath of paths) {
-        try {
-          const archiveStream = await container.getArchive({ path: dirPath });
-          const files = await this.extractTarStream(archiveStream);
-          if (sentinel && files[sentinel]) {
+      try {
+        const sentinelPath = join(credDir, sentinel);
+        if (existsSync(sentinelPath)) {
+          const files: Record<string, Buffer> = {};
+          this.readDirRecursive(credDir, credDir, files);
+          if (files[sentinel]) {
             return files;
           }
-        } catch (err: any) {
-          if (err.statusCode !== 404) {
-            console.error(`[auth-container] Error checking ${dirPath}:`, err.message);
-          }
         }
+      } catch (err: any) {
+        console.error(`[auth-pty] Error checking ${credDir}:`, err.message);
       }
 
       await new Promise<void>((resolve) => {
@@ -137,43 +112,27 @@ export class AuthContainerService {
     return null;
   }
 
-  private async extractTarStream(stream: NodeJS.ReadableStream): Promise<Record<string, Buffer>> {
-    return new Promise((resolve, reject) => {
-      const extract = tar.extract();
-      const files: Record<string, Buffer> = {};
-
-      extract.on("entry", (header, entryStream, next) => {
-        const chunks: Buffer[] = [];
-        entryStream.on("data", (chunk: Buffer) => chunks.push(chunk));
-        entryStream.on("end", () => {
-          if (header.type === "file") {
-            const parts = header.name.split("/");
-            const relativePath = parts.length > 1 ? parts.slice(1).join("/") : header.name;
-            if (relativePath) files[relativePath] = Buffer.concat(chunks);
-          }
-          next();
-        });
-        entryStream.resume();
-      });
-
-      extract.on("finish", () => resolve(files));
-      extract.on("error", reject);
-
-      (stream as any).pipe(extract);
-    });
+  private readDirRecursive(baseDir: string, dir: string, files: Record<string, Buffer>): void {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const fullPath = join(dir, entry.name);
+      if (entry.isDirectory()) {
+        this.readDirRecursive(baseDir, fullPath, files);
+      } else if (entry.isFile()) {
+        const relativePath = fullPath.slice(baseDir.length + 1);
+        files[relativePath] = readFileSync(fullPath);
+      }
+    }
   }
 
   async destroyContainer(userId: string): Promise<void> {
-    const entry = this.activeContainers.get(userId);
+    const entry = this.activeSessions.get(userId);
     if (!entry) return;
 
     if (entry.timer) clearTimeout(entry.timer);
-    this.activeContainers.delete(userId);
+    this.activeSessions.delete(userId);
 
     try {
-      const container = this.docker.getContainer(entry.containerId);
-      await container.stop({ t: 2 });
-      await container.remove({ force: true });
+      entry.ptyProcess.kill();
     } catch {}
   }
 }

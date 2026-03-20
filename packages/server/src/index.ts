@@ -50,7 +50,6 @@ export function createApp(): { app: express.Express; providerService: ProviderSe
   const credentialStore = new CredentialStore(encKey);
 
   const authContainerService = new AuthContainerService({
-    image: process.env.AUTH_CONTAINER_IMAGE || "patchwork-auth:latest",
     timeoutMs: 5 * 60 * 1000,
   });
 
