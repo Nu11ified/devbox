@@ -95,66 +95,159 @@ export default function ProjectThreadDetailPage() {
 
       for (const turn of data.turns ?? []) {
         const tid = turn.turnId ?? turn.id;
-        // Insert tool use events that belong to this turn BEFORE the turn text
-        const turnEvents = eventsByTurn.get(tid) ?? [];
-        for (const evt of turnEvents) {
-          if (evt.type === "item.started") {
-            const p = evt.payload;
-            const completed = completedItems.has(p.itemId);
-            const cp = completedPayloads.get(p.itemId);
-            initial.push({
-              id: p.itemId,
-              kind: "work_item",
-              toolName: p.toolName,
-              toolCategory: p.toolCategory,
-              input: p.input,
-              completed,
-              output: cp?.output,
-              error: cp?.error,
-              turnId: tid,
-            });
-          } else if (evt.type === "request.opened") {
-            const p = evt.payload;
-            // Suppress AskUserQuestion — rendered via ask_user event
-            if (p.toolName === "AskUserQuestion") continue;
-            initial.push({
-              id: `req-${p.requestId}`,
-              kind: "approval_request",
-              requestId: p.requestId,
-              toolName: p.toolName,
-              toolCategory: p.toolCategory,
-              description: p.description,
-              input: p.input,
-              resolved: true, // Historical requests are resolved
-              turnId: tid,
-            });
-          } else if (evt.type === "ask_user") {
-            const p = evt.payload;
-            initial.push({
-              id: `ask-${p.requestId}`,
-              kind: "ask_user" as const,
-              question: p.question,
-              options: p.options,
-              requestId: p.requestId,
-              resolved: resolvedRequests.has(p.requestId),
-              turnId: tid,
-            });
-          } else if (evt.type === "context.compacted") {
-            initial.push({
-              id: `compact-${evt.eventId}`,
-              kind: "context_compacted",
-              content: evt.payload?.message ?? "Context compacted",
-              turnId: tid,
-            });
-          }
+
+        if (turn.role === "user") {
+          initial.push({
+            id: turn.id,
+            kind: "user_message",
+            content: turn.content ?? "",
+            turnId: tid,
+          });
+          continue;
         }
 
-        initial.push({
-          id: turn.id,
-          kind: turn.role === "user" ? "user_message" : "assistant_text",
-          content: turn.content ?? "",
-          turnId: tid,
-        });
+        // For assistant turns, interleave text and tool items using event sequence.
+        // content.delta events tell us where text goes; item.started / request.opened
+        // events mark tool boundaries that split text into separate bubbles.
+        const turnEvents = (eventsByTurn.get(tid) ?? [])
+          .sort((a: any, b: any) => (a.sequence ?? 0) - (b.sequence ?? 0));
+
+        const hasTextDeltas = turnEvents.some((e: any) => e.type === "content.delta" && e.payload?.kind === "text");
+
+        if (hasTextDeltas) {
+          // Rebuild interleaved timeline from events
+          let textAccum = "";
+          let textBlockIdx = 0;
+
+          const flushText = () => {
+            if (!textAccum) return;
+            initial.push({
+              id: `${turn.id}-text-${textBlockIdx++}`,
+              kind: "assistant_text",
+              content: textAccum,
+              turnId: tid,
+            });
+            textAccum = "";
+          };
+
+          for (const evt of turnEvents) {
+            if (evt.type === "content.delta" && evt.payload?.kind === "text") {
+              textAccum += evt.payload.delta ?? "";
+            } else if (evt.type === "item.started") {
+              flushText();
+              const p = evt.payload;
+              const completed = completedItems.has(p.itemId);
+              const cp = completedPayloads.get(p.itemId);
+              initial.push({
+                id: p.itemId,
+                kind: "work_item",
+                toolName: p.toolName,
+                toolCategory: p.toolCategory,
+                input: p.input,
+                completed,
+                output: cp?.output,
+                error: cp?.error,
+                turnId: tid,
+              });
+            } else if (evt.type === "request.opened") {
+              const p = evt.payload;
+              if (p.toolName === "AskUserQuestion") continue;
+              flushText();
+              initial.push({
+                id: `req-${p.requestId}`,
+                kind: "approval_request",
+                requestId: p.requestId,
+                toolName: p.toolName,
+                toolCategory: p.toolCategory,
+                description: p.description,
+                input: p.input,
+                resolved: true,
+                turnId: tid,
+              });
+            } else if (evt.type === "ask_user") {
+              flushText();
+              const p = evt.payload;
+              initial.push({
+                id: `ask-${p.requestId}`,
+                kind: "ask_user" as const,
+                question: p.question,
+                options: p.options,
+                requestId: p.requestId,
+                resolved: resolvedRequests.has(p.requestId),
+                turnId: tid,
+              });
+            } else if (evt.type === "context.compacted") {
+              flushText();
+              initial.push({
+                id: `compact-${evt.eventId}`,
+                kind: "context_compacted",
+                content: evt.payload?.message ?? "Context compacted",
+                turnId: tid,
+              });
+            }
+          }
+          flushText(); // Remaining text after last tool
+        } else {
+          // Fallback for legacy data without content.delta events:
+          // show all tool events then the full turn text
+          for (const evt of turnEvents) {
+            if (evt.type === "item.started") {
+              const p = evt.payload;
+              const completed = completedItems.has(p.itemId);
+              const cp = completedPayloads.get(p.itemId);
+              initial.push({
+                id: p.itemId,
+                kind: "work_item",
+                toolName: p.toolName,
+                toolCategory: p.toolCategory,
+                input: p.input,
+                completed,
+                output: cp?.output,
+                error: cp?.error,
+                turnId: tid,
+              });
+            } else if (evt.type === "request.opened") {
+              const p = evt.payload;
+              if (p.toolName === "AskUserQuestion") continue;
+              initial.push({
+                id: `req-${p.requestId}`,
+                kind: "approval_request",
+                requestId: p.requestId,
+                toolName: p.toolName,
+                toolCategory: p.toolCategory,
+                description: p.description,
+                input: p.input,
+                resolved: true,
+                turnId: tid,
+              });
+            } else if (evt.type === "ask_user") {
+              const p = evt.payload;
+              initial.push({
+                id: `ask-${p.requestId}`,
+                kind: "ask_user" as const,
+                question: p.question,
+                options: p.options,
+                requestId: p.requestId,
+                resolved: resolvedRequests.has(p.requestId),
+                turnId: tid,
+              });
+            } else if (evt.type === "context.compacted") {
+              initial.push({
+                id: `compact-${evt.eventId}`,
+                kind: "context_compacted",
+                content: evt.payload?.message ?? "Context compacted",
+                turnId: tid,
+              });
+            }
+          }
+
+          initial.push({
+            id: turn.id,
+            kind: "assistant_text",
+            content: turn.content ?? "",
+            turnId: tid,
+          });
+        }
       }
 
       setItems(initial);
@@ -261,18 +354,32 @@ export default function ProjectThreadDetailPage() {
         }
 
         case "item.started": {
-          setItems((prev) => [
-            ...prev,
-            {
-              id: e.payload.itemId,
-              kind: "work_item",
-              toolName: e.payload.toolName,
-              toolCategory: e.payload.toolCategory,
-              input: e.payload.input,
-              completed: false,
-              turnId: currentTurnIdRef.current ?? undefined,
-            },
-          ]);
+          // Finalize current text bubble so text before and after tool calls
+          // appear as separate bubbles interleaved with tool items
+          const prevTextId = assistantItemIdRef.current;
+          assistantTextRef.current = "";
+          assistantItemIdRef.current = null;
+
+          setItems((prev) => {
+            let updated = prev;
+            if (prevTextId) {
+              updated = prev.map((i) =>
+                i.id === prevTextId ? { ...i, streaming: false } : i
+              );
+            }
+            return [
+              ...updated,
+              {
+                id: e.payload.itemId,
+                kind: "work_item",
+                toolName: e.payload.toolName,
+                toolCategory: e.payload.toolCategory,
+                input: e.payload.input,
+                completed: false,
+                turnId: currentTurnIdRef.current ?? undefined,
+              },
+            ];
+          });
           break;
         }
 
@@ -290,19 +397,32 @@ export default function ProjectThreadDetailPage() {
         case "request.opened": {
           // Suppress AskUserQuestion — already rendered via ask_user event as AskUserCard
           if (e.payload.toolName === "AskUserQuestion") break;
-          setItems((prev) => [
-            ...prev,
-            {
-              id: `req-${e.payload.requestId}`,
-              kind: "approval_request",
-              requestId: e.payload.requestId,
-              toolName: e.payload.toolName,
-              toolCategory: e.payload.toolCategory,
-              description: e.payload.description,
-              input: e.payload.input,
-              resolved: false,
-            },
-          ]);
+          // Finalize current text bubble before approval card
+          const prevTextIdReq = assistantItemIdRef.current;
+          assistantTextRef.current = "";
+          assistantItemIdRef.current = null;
+
+          setItems((prev) => {
+            let updated = prev;
+            if (prevTextIdReq) {
+              updated = prev.map((i) =>
+                i.id === prevTextIdReq ? { ...i, streaming: false } : i
+              );
+            }
+            return [
+              ...updated,
+              {
+                id: `req-${e.payload.requestId}`,
+                kind: "approval_request",
+                requestId: e.payload.requestId,
+                toolName: e.payload.toolName,
+                toolCategory: e.payload.toolCategory,
+                description: e.payload.description,
+                input: e.payload.input,
+                resolved: false,
+              },
+            ];
+          });
           break;
         }
 
@@ -352,17 +472,29 @@ export default function ProjectThreadDetailPage() {
         }
 
         case "ask_user": {
-          // Surface agent's clarifying question in the timeline
-          setItems((prev) => [
-            ...prev,
-            {
-              id: `ask-${e.payload.requestId}`,
-              kind: "ask_user" as const,
-              question: e.payload.question,
-              options: e.payload.options,
-              requestId: e.payload.requestId,
-            },
-          ]);
+          // Finalize current text bubble before ask card
+          const prevTextIdAsk = assistantItemIdRef.current;
+          assistantTextRef.current = "";
+          assistantItemIdRef.current = null;
+
+          setItems((prev) => {
+            let updated = prev;
+            if (prevTextIdAsk) {
+              updated = prev.map((i) =>
+                i.id === prevTextIdAsk ? { ...i, streaming: false } : i
+              );
+            }
+            return [
+              ...updated,
+              {
+                id: `ask-${e.payload.requestId}`,
+                kind: "ask_user" as const,
+                question: e.payload.question,
+                options: e.payload.options,
+                requestId: e.payload.requestId,
+              },
+            ];
+          });
           break;
         }
 

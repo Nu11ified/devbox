@@ -335,6 +335,11 @@ export class ClaudeCodeAdapter implements ProviderAdapterShape {
     const threadId = state.session.threadId;
     const isFullAccess = state.session.runtimeMode === "full-access";
 
+    const cwd = state.session.workspacePath || "/workspace";
+    if (!existsSync(cwd)) {
+      mkdirSync(cwd, { recursive: true });
+    }
+
     // Start with process.env so the CLI inherits PATH, HOME, CLAUDE_CONFIG_DIR, etc.
     const env: Record<string, string> = {
       ...Object.fromEntries(
@@ -375,11 +380,6 @@ export class ClaudeCodeAdapter implements ProviderAdapterShape {
     // so the agent container never sees the actual API key.
     if (process.env.ANTHROPIC_BASE_URL) {
       env.ANTHROPIC_BASE_URL = process.env.ANTHROPIC_BASE_URL;
-    }
-
-    const cwd = state.session.workspacePath || "/workspace";
-    if (!existsSync(cwd)) {
-      mkdirSync(cwd, { recursive: true });
     }
 
     // Write installed plugin instructions to CLAUDE.md in the workspace

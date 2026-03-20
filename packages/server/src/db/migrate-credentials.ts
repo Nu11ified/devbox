@@ -52,7 +52,8 @@ export async function migrateCredentials(): Promise<{ migrated: number; skipped:
 }
 
 // CLI entry point
-if (import.meta.main) {
+const _isMain = process.argv[1] && (process.argv[1].endsWith("/migrate-credentials.ts") || process.argv[1].endsWith("/migrate-credentials.js"));
+if (_isMain) {
   migrateCredentials()
     .then(({ migrated, skipped }) => {
       console.log(`Migration complete: ${migrated} migrated, ${skipped} skipped`);
