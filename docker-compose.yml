@@ -58,9 +58,6 @@ services:
       FILE_STORE_PATH: /data/patchwork
       REDIS_URL: redis://redis:6379
       CLAUDE_CONFIG_DIR: /home/bun/.claude
-    dns:
-      - 8.8.8.8
-      - 1.1.1.1
     networks:
       - patchwork
     deploy:

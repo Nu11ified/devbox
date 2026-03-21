@@ -11,8 +11,8 @@ export class GitHubSyncJob {
   start(): void {
     console.log("GitHub sync job started (interval: 5m)");
     this.timer = setInterval(() => this.tick(), SYNC_INTERVAL_MS);
-    // Delay the first sync to let container networking (DNS) stabilise
-    setTimeout(() => this.tick(), 10_000);
+    // Run immediately on start so issues are synced without waiting 5 minutes
+    this.tick();
   }
 
   stop(): void {
