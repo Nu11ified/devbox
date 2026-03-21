@@ -89,7 +89,8 @@ export function AuthTerminalModal({
           switch (msg.type) {
             case "auth.ready":
               setStatus("ready");
-              terminal.writeln("Container ready. Complete the login flow below:\n");
+              terminal.writeln("Ready. Complete the login flow below:\n");
+              terminal.focus();
               break;
             case "data":
               terminal.write(msg.data);
@@ -158,7 +159,10 @@ export function AuthTerminalModal({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl">
+      <DialogContent
+        className="max-w-2xl"
+        onOpenAutoFocus={(e) => e.preventDefault()}
+      >
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <TerminalIcon className="h-5 w-5" />
@@ -182,6 +186,7 @@ export function AuthTerminalModal({
         <div
           ref={termRef}
           className="h-[400px] rounded-md border border-zinc-800 bg-zinc-950 overflow-hidden"
+          onClick={() => terminalRef.current?.focus()}
         />
 
         <div className="flex justify-end gap-2 mt-2">
