@@ -1,0 +1,48 @@
+# Dependencies - reinstalled inside containers
+node_modules
+
+# Git history - not needed in builds
+.git
+
+# Worktrees - massive, not needed in builds
+.worktrees
+.claude/worktrees
+
+# Build artifacts
+packages/server/dist
+packages/ui/.next
+packages/ui/out
+packages/shared/dist
+packages/sidecar/dist
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+
+# IDE / OS
+.vscode
+.idea
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Docker files (no need to copy into themselves)
+docker-compose*.yml
+Dockerfile*
+docker/
+
+# Docs and config not needed in build
+docs/
+*.md
+LICENSE
+.prettierrc*
+.eslintrc*
+.editorconfig
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*

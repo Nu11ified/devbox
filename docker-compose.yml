@@ -10,6 +10,13 @@ services:
       - pgdata:/var/lib/postgresql/data
     networks:
       - patchwork
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '1.0'
+        reservations:
+          memory: 256M
 
   redis:
     image: redis:7-alpine
@@ -18,7 +25,14 @@ services:
       - redisdata:/data
     networks:
       - patchwork
-    command: redis-server --appendonly yes
+    command: redis-server --appendonly yes --maxmemory 128mb --maxmemory-policy allkeys-lru
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.5'
+        reservations:
+          memory: 64M
 
   server:
     build:
@@ -46,6 +60,13 @@ services:
       CLAUDE_CONFIG_DIR: /home/bun/.claude
     networks:
       - patchwork
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: '2.0'
+        reservations:
+          memory: 512M
 
   ui:
     build:
@@ -67,6 +88,13 @@ services:
       DATABASE_URL: postgresql://${POSTGRES_USER:-patchwork}:${POSTGRES_PASSWORD:-patchwork}@postgres:5432/${POSTGRES_DB:-patchwork}
     networks:
       - patchwork
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '1.0'
+        reservations:
+          memory: 256M
 
 networks:
   patchwork:

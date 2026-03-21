@@ -5,6 +5,9 @@ const serverUrl = process.env.API_SERVER_URL || "http://localhost:3001";
 const nextConfig: NextConfig = {
   output: "standalone",
   transpilePackages: ["@xterm/xterm", "@xterm/addon-fit", "@xterm/addon-webgl"],
+  experimental: {
+    webpackMemoryOptimizations: true,
+  },
   async rewrites() {
     return [
       {

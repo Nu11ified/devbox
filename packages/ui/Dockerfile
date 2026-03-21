@@ -45,8 +45,9 @@ ARG NEXT_PUBLIC_WS_URL
 ENV NEXT_PUBLIC_WS_URL=${NEXT_PUBLIC_WS_URL}
 
 # Build shared with bun (simple tsc, no crash), then Next.js with node
+# Cap Node heap at 2GB to prevent OOM-killing the host during build
 RUN bun run --filter @patchwork/shared build && \
-    cd packages/ui && node node_modules/.bin/next build
+    cd packages/ui && NODE_OPTIONS="--max-old-space-size=2048" node node_modules/.bin/next build
 
 # --- Runtime ---
 FROM node:20-slim
